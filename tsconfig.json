@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "target": "es6",
+    "moduleResolution": "node",
+    "sourceMap": true,
+    "outDir": "dist",
+    "resolveJsonModule": true,
+    "strictNullChecks": true,
+    "declaration": true,
+    "declarationDir": "./dist"
+  },
+  "lib": ["es2016"],
+  "include": ["**/*", "**/*.ts"],
+}
