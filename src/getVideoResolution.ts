@@ -13,8 +13,8 @@ export type resolution = {
  * @throws Error if the video resolution could not be retrieved
  * @example
  * ```
- * const resolution = await getVideoResolution('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
- * console.log(resolution); // { width: 1280, height: 720 }
+ * const resolution = await getVideoResolution('https://www.example-stream/manifest.m3u8');
+ * console.log(resolution); // { width: 1920, height: 1080 }
  * ```
  */
 export async function getVideoResolution(url: string): Promise<resolution> {
