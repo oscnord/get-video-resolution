@@ -19,3 +19,12 @@ brew install ffprobe
 ```bash
 sudo apt-get install ffprobe
 ```
+
+## Usage
+
+```TypeScript
+import { getVideoResolution } from "@oscnord/get-video-resolution";
+
+const resolution = await getVideoResolution('https://www.example-stream/manifest.m3u8');
+console.log(resolution); // { width: 1920, height: 1080 }
+```

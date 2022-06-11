@@ -19,7 +19,7 @@ export type resolution = {
  */
 export async function getVideoResolution(url: string): Promise<resolution> {
   const nbStreams = await getNumberOfStreams(url);
-  for (let i = 0; i < nbStreams; i++) {
+  for (let i = 0; i <= nbStreams; i++) {
     const stream = (nbStreams - i);
     try {
       return await getWidthAndHeight(url, stream);

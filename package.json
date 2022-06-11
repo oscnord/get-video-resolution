@@ -1,5 +1,5 @@
 {
-  "name": "get-video-resolution",
+  "name": "@oscnord/get-video-resolution",
   "version": "0.0.1",
   "description": "Get the resolution (width and height) of a video. Can be a local video or a HLS stream",
   "main": "dist/index.js",
