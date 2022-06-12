@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import util from 'util';
 
+const exec = util.promisify(require('child_process').execFile);
 export type resolution = {
   width: number;
   height: number;
@@ -32,7 +33,6 @@ export async function getVideoResolution(url: string): Promise<resolution> {
 }
 
 async function getWidthAndHeight(url: string, nbStreams: number): Promise<resolution> {
-  const exec = util.promisify(require('child_process').execFile);
   const { stdout } = await exec('ffprobe', [
     '-v',
     'error',
@@ -57,7 +57,6 @@ async function getWidthAndHeight(url: string, nbStreams: number): Promise<resolu
 }
 
 async function getNumberOfStreams(url: string): Promise<number> {
-  const exec = util.promisify(require('child_process').execFile);
   const { stdout } = await exec('ffprobe', [
     '-select_streams',
     'v',
