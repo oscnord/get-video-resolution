@@ -20,16 +20,22 @@ export type resolution = {
  */
 export async function getVideoResolution(url: string): Promise<resolution> {
   const nbStreams = await getNumberOfStreams(url);
+  let resolution: resolution = { width: 0, height: 0 };
   for (let i = 0; i <= nbStreams; i++) {
-    const stream = (nbStreams - i);
+    let currRes: resolution;
     try {
-      return await getWidthAndHeight(url, stream);
+      currRes = await getWidthAndHeight(url, i);
+      if (currRes.width > resolution.width) {
+        resolution = currRes;
+      }
     } catch (error) {
-      // ignore error and try next stream
       continue;
     }
   }
-  throw new Error('Could not get video resolution!');
+  if (resolution.width === 0) {
+    throw new Error('Could not get video resolution!');
+  }
+  return resolution;
 }
 
 async function getWidthAndHeight(url: string, nbStreams: number): Promise<resolution> {
@@ -58,18 +64,16 @@ async function getWidthAndHeight(url: string, nbStreams: number): Promise<resolu
 
 async function getNumberOfStreams(url: string): Promise<number> {
   const { stdout } = await exec('ffprobe', [
-    '-select_streams',
-    'v',
+    url,
     '-show_entries',
     'format=nb_streams',
     '-v',
     '0',
     '-of',
-    'compact=p=0:nk=1',
-    url,
-  ])
+    'compact=p=0:nk=1'
+  ]);
   const out = stdout[0].toString('utf8');
-  const nbStreams = parseInt(out, 10);
+  const nbStreams = parseInt(out);
   if (nbStreams === 0) {
     throw new Error('No video stream found!');
   }
