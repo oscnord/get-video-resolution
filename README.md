@@ -6,18 +6,18 @@ Get the dimensions (width and height) of a video. Can be a local video or a vide
 
 ### ffprobe
 
-To be able to extract the video dimensions `ffprobe` needs to be installed.
+To be able to extract the video dimensions `ffmpeg/ffprobe` needs to be installed.
 
 **MacOS:**
 
 ```bash
-brew install ffprobe
+brew install ffmpeg
 ```
 
 **Ubuntu:**
 
 ```bash
-sudo apt-get install ffprobe
+sudo apt-get install ffmpeg
 ```
 
 ## Usage
