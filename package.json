@@ -1,11 +1,8 @@
 {
   "name": "@oscnord/get-video-resolution",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Get the dimensions (width and height) of a video. Can be a local video or a HLS stream",
   "main": "dist/index.js",
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "postversion": "git push && git push --tags",
