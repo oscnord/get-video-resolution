@@ -41,7 +41,7 @@
   ],
   "homepage": "https://github.com/oscnord/get-video-resolution#readme",
   "dependencies": {
-    "@remotion/media-parser": "^4"
+    "@remotion/media-parser": "^4.0.0"
   },
   "devDependencies": {
     "@types/bun": "^1",

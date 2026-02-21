@@ -1,3 +1,4 @@
+import { readFile } from "fs/promises";
 import type { Resolution } from "../types";
 
 /**
@@ -25,8 +26,7 @@ async function loadManifest(source: string): Promise<string> {
     }
     return response.text();
   }
-  const file = Bun.file(source);
-  return file.text();
+  return readFile(source, "utf-8");
 }
 
 function extractResolutions(content: string): Resolution[] {

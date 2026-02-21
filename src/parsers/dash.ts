@@ -1,3 +1,4 @@
+import { readFile } from "fs/promises";
 import type { Resolution } from "../types";
 
 /**
@@ -25,31 +26,25 @@ async function loadManifest(source: string): Promise<string> {
     }
     return response.text();
   }
-  const file = Bun.file(source);
-  return file.text();
+  return readFile(source, "utf-8");
 }
 
 function extractResolutions(content: string): Resolution[] {
-  const regex = /<Representation[^>]*?\bwidth=["'](\d+)["'][^>]*?\bheight=["'](\d+)["'][^>]*?\/?>/gi;
+  const regex =
+    /<Representation[^>]*?\b(?:width=["'](\d+)["'][^>]*?\bheight=["'](\d+)["']|height=["'](\d+)["'][^>]*?\bwidth=["'](\d+)["'])/gi;
   const resolutions: Resolution[] = [];
 
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
-    resolutions.push({
-      width: parseInt(match[1], 10),
-      height: parseInt(match[2], 10),
-    });
-  }
+    const width = match[1] ?? match[4];
+    const height = match[2] ?? match[3];
 
-  // Also handle height before width
-  const reverseRegex = /<Representation[^>]*?\bheight=["'](\d+)["'][^>]*?\bwidth=["'](\d+)["'][^>]*?\/?>/gi;
-  while ((match = reverseRegex.exec(content)) !== null) {
-    const width = parseInt(match[2], 10);
-    const height = parseInt(match[1], 10);
-    // Avoid duplicates from the first regex
-    if (!resolutions.some(r => r.width === width && r.height === height)) {
-      resolutions.push({ width, height });
-    }
+    if (!width || !height) continue;
+
+    resolutions.push({
+      width: parseInt(width, 10),
+      height: parseInt(height, 10),
+    });
   }
 
   return resolutions;
