@@ -2,10 +2,10 @@
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT60S">
   <Period>
     <AdaptationSet mimeType="video/mp4" contentType="video">
-      <Representation id="1" width="640" height="360" bandwidth="800000" codecs="avc1.4d401e"/>
-      <Representation id="2" width="842" height="480" bandwidth="1400000" codecs="avc1.4d401f"/>
-      <Representation id="3" width="1280" height="720" bandwidth="2800000" codecs="avc1.4d4020"/>
-      <Representation id="4" width="1920" height="1080" bandwidth="5000000" codecs="avc1.640028"/>
+      <Representation id="1" width="640" height="360" bandwidth="800000" codecs="avc1.4d401e" frameRate="30"/>
+      <Representation id="2" width="842" height="480" bandwidth="1400000" codecs="avc1.4d401f" frameRate="30"/>
+      <Representation id="3" width="1280" height="720" bandwidth="2800000" codecs="avc1.4d4020" frameRate="30"/>
+      <Representation id="4" width="1920" height="1080" bandwidth="5000000" codecs="avc1.640028" frameRate="30"/>
     </AdaptationSet>
   </Period>
 </MPD>

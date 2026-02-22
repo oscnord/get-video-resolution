@@ -1,51 +1,92 @@
-import { readFile } from "fs/promises";
-import type { Resolution } from "../types";
+import type { VideoInfo } from "../types";
+import type { FetchOptions } from "../utils/fetch";
+import { loadManifest } from "../utils/fetch";
+import { ManifestParseError } from "../errors";
+import { getAspectRatio } from "../utils/aspect-ratio";
+import { isHdrCodec } from "../utils/hdr";
 
 /**
- * Parse a DASH MPD manifest and return the highest resolution found.
- * Extracts width/height attributes from <Representation> elements.
+ * Parse a DASH MPD manifest and return all representations as VideoInfo[].
+ * Extracts width, height, bandwidth, codecs, frameRate from <Representation> elements.
+ * Extracts duration from mediaPresentationDuration on the <MPD> element.
  */
-export async function parseDash(source: string): Promise<Resolution> {
-  const content = await loadManifest(source);
-  const resolutions = extractResolutions(content);
+export async function parseDash(
+  source: string,
+  options: FetchOptions,
+): Promise<VideoInfo[]> {
+  const content = await loadManifest(source, options);
+  const duration = extractDuration(content);
+  const representations = extractRepresentations(content, duration);
 
-  if (resolutions.length === 0) {
-    throw new Error("No resolution found in DASH manifest");
+  if (representations.length === 0) {
+    throw new ManifestParseError("No resolution found in DASH manifest");
   }
 
-  return resolutions.reduce((best, r) =>
-    r.width * r.height > best.width * best.height ? r : best
-  );
+  return representations;
 }
 
-async function loadManifest(source: string): Promise<string> {
-  if (source.startsWith("http://") || source.startsWith("https://")) {
-    const response = await fetch(source);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch DASH manifest: ${response.status}`);
-    }
-    return response.text();
-  }
-  return readFile(source, "utf-8");
+function extractDuration(content: string): number | undefined {
+  const match = /mediaPresentationDuration="PT([^"]+)"/.exec(content);
+  if (!match) return undefined;
+  return parseIso8601Duration(match[1]);
 }
 
-function extractResolutions(content: string): Resolution[] {
+function parseIso8601Duration(duration: string): number {
+  let seconds = 0;
+  const hours = /(\d+(?:\.\d+)?)H/.exec(duration);
+  const minutes = /(\d+(?:\.\d+)?)M/.exec(duration);
+  const secs = /(\d+(?:\.\d+)?)S/.exec(duration);
+
+  if (hours) seconds += parseFloat(hours[1]) * 3600;
+  if (minutes) seconds += parseFloat(minutes[1]) * 60;
+  if (secs) seconds += parseFloat(secs[1]);
+
+  return seconds;
+}
+
+function extractRepresentations(
+  content: string,
+  duration: number | undefined,
+): VideoInfo[] {
   const regex =
-    /<Representation[^>]*?\b(?:width=["'](\d+)["'][^>]*?\bheight=["'](\d+)["']|height=["'](\d+)["'][^>]*?\bwidth=["'](\d+)["'])/gi;
-  const resolutions: Resolution[] = [];
+    /<Representation[^>]*?\bwidth=["'](\d+)["'][^>]*?\bheight=["'](\d+)["'][^>]*?\/?>/gi;
+  const representations: VideoInfo[] = [];
 
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
-    const width = match[1] ?? match[4];
-    const height = match[2] ?? match[3];
+    const tag = match[0];
+    const width = parseInt(match[1], 10);
+    const height = parseInt(match[2], 10);
 
-    if (!width || !height) continue;
+    const bwMatch = /bandwidth=["'](\d+)["']/.exec(tag);
+    const bitrate = bwMatch ? parseInt(bwMatch[1], 10) : undefined;
 
-    resolutions.push({
-      width: parseInt(width, 10),
-      height: parseInt(height, 10),
+    const codecMatch = /codecs=["']([^"']+)["']/.exec(tag);
+    const codec = codecMatch ? codecMatch[1] : undefined;
+
+    const frMatch = /frameRate=["']?([\d.]+(?:\/\d+)?)["']?/.exec(tag);
+    let framerate: number | undefined;
+    if (frMatch) {
+      const frValue = frMatch[1];
+      if (frValue.includes("/")) {
+        const [num, den] = frValue.split("/").map(Number);
+        framerate = num / den;
+      } else {
+        framerate = parseFloat(frValue);
+      }
+    }
+
+    representations.push({
+      width,
+      height,
+      bitrate,
+      codec,
+      framerate,
+      duration,
+      aspectRatio: getAspectRatio(width, height),
+      hdr: isHdrCodec(codec),
     });
   }
 
-  return resolutions;
+  return representations;
 }
