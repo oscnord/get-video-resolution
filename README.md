@@ -1,5 +1,8 @@
 # Get video resolution
 
+[![CI](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml/badge.svg)](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@oscnord/get-video-resolution)](https://www.npmjs.com/package/@oscnord/get-video-resolution)
+
 Get the resolution and metadata of a video. Supports local files (MP4, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
 
 No ffmpeg required.
