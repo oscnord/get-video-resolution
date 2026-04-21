@@ -17,7 +17,7 @@ import { UnsupportedSourceError } from "./errors";
  */
 export async function getVideoResolution(
   source: string | Buffer | Blob | ReadableStream,
-  options?: GetVideoResolutionOptions & { pick: "all" },
+  options: GetVideoResolutionOptions & { pick: "all" },
 ): Promise<VideoInfo[]>;
 export async function getVideoResolution(
   source: string | Buffer | Blob | ReadableStream,
