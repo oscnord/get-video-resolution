@@ -131,7 +131,7 @@ const info = await getVideoResolution(buffer);
 ```typescript
 function getVideoResolution(
   source: string | Buffer | Blob | ReadableStream,
-  options?: GetVideoResolutionOptions & { pick: "all" },
+  options: GetVideoResolutionOptions & { pick: "all" },
 ): Promise<VideoInfo[]>;
 
 function getVideoResolution(
