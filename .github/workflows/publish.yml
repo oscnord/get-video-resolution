@@ -2,10 +2,19 @@ name: Publish Package
 
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -20,5 +29,10 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - uses: oven-sh/setup-bun@v2
       - run: bun install
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          npm version ${{ inputs.bump }}
       - run: bun run build
       - run: npm publish --provenance --access public
+      - run: git push --follow-tags
