@@ -5,10 +5,6 @@ import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
 import { isHdrCodec } from "../utils/hdr";
 
-/**
- * Parse an HLS manifest and return all variants as VideoInfo[].
- * Extracts RESOLUTION, BANDWIDTH, CODECS, FRAME-RATE from #EXT-X-STREAM-INF lines.
- */
 export async function parseHls(
   source: string,
   options: FetchOptions,
@@ -76,11 +72,6 @@ function parseStreamInf(line: string): RawVariant | null {
   return { width, height, bandwidth, codecs, frameRate };
 }
 
-/**
- * Extract the video codec from a comma-separated codec string.
- * HLS CODECS often contain both video and audio codecs like "avc1.640028,mp4a.40.2".
- * We return the first non-audio codec.
- */
 function extractVideoCodec(codecs: string | undefined): string | undefined {
   if (!codecs) return undefined;
   const parts = codecs.split(",").map((s) => s.trim());

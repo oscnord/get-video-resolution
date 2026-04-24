@@ -9,8 +9,15 @@ import { parseAVI } from "./avi";
 import { parseMP4 } from "./mp4";
 import { EBML_MAGIC, parseWebM } from "./webm";
 
+interface FileParseOptions {
+  signal?: AbortSignal;
+  timeout?: number;
+  fetch?: typeof globalThis.fetch;
+}
+
 async function toUint8Array(
   source: string | Buffer | Blob | ReadableStream,
+  options: FileParseOptions,
 ): Promise<Uint8Array> {
   if (source instanceof Uint8Array) {
     return source;
@@ -39,13 +46,14 @@ async function toUint8Array(
   }
 
   if (typeof source !== "string") {
-    throw new MediaParseError(`Unsupported source type`);
+    throw new MediaParseError("Unsupported source type");
   }
 
   const isUrl = source.startsWith("http://") || source.startsWith("https://");
 
   if (isUrl) {
-    const response = await fetch(source);
+    const fetchFn = options.fetch ?? globalThis.fetch;
+    const response = await fetchFn(source, { signal: options.signal });
     if (!response.ok) {
       throw new MediaParseError(
         `Failed to fetch ${source}: ${response.status}`,
@@ -99,10 +107,10 @@ function detectFormat(data: Uint8Array): "mp4" | "webm" | "avi" | "unknown" {
 
 export async function parseFile(
   source: string | Buffer | Blob | ReadableStream,
-  _options: Pick<GetVideoResolutionOptions, "signal" | "timeout">,
+  options: Pick<GetVideoResolutionOptions, "signal" | "timeout" | "fetch">,
 ): Promise<VideoInfo> {
   try {
-    const data = await toUint8Array(source);
+    const data = await toUint8Array(source, options);
     const format = detectFormat(data);
 
     let result: ParsedMetadata;

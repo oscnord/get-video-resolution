@@ -12,7 +12,6 @@ export interface VideoInfo {
   bitrate?: number;
   aspectRatio?: string;
   hdr?: boolean;
-  colorSpace?: string;
 }
 
 export interface ParsedMetadata {

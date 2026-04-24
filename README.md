@@ -45,8 +45,7 @@ const info = await getVideoResolution("/path/to/video.mp4");
 //   framerate: 29.97,
 //   bitrate: undefined,       // available for HLS/DASH variants
 //   aspectRatio: "16:9",
-//   hdr: false,
-//   colorSpace: undefined
+//   hdr: false
 // }
 ```
 
@@ -154,7 +153,6 @@ interface VideoInfo {
   bitrate?: number;       // bits per second (HLS/DASH only)
   aspectRatio?: string;   // e.g. "16:9", "4:3"
   hdr?: boolean;          // true for HDR codecs (HLG, HDR10, Dolby Vision)
-  colorSpace?: string;
 }
 ```
 
