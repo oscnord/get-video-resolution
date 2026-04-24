@@ -1,13 +1,5 @@
+import type { ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
-
-export interface MP4Metadata {
-  width: number;
-  height: number;
-  duration?: number;
-  codec?: string;
-  framerate?: number;
-  hdr: boolean;
-}
 
 interface Box {
   type: string;
@@ -104,34 +96,6 @@ function findBox(
     if (box.type === type) return box;
   }
   return null;
-}
-
-function _findBoxPath(data: Uint8Array, path: string[]): Box | null {
-  let start = 0;
-  let end = data.length;
-  let box: Box | null = null;
-
-  for (const type of path) {
-    box = findBox(data, start, end, type);
-    if (!box) return null;
-    start = box.offset + box.headerSize;
-    end = box.offset + box.size;
-  }
-
-  return box;
-}
-
-function findAllBoxes(
-  data: Uint8Array,
-  start: number,
-  end: number,
-  type: string,
-): Box[] {
-  const results: Box[] = [];
-  for (const box of iterateBoxes(data, start, end)) {
-    if (box.type === type) results.push(box);
-  }
-  return results;
 }
 
 function findBoxRecursive(
@@ -232,9 +196,6 @@ function parseDimensions(
   const entryBox = readBoxHeader(data, entryStart);
   if (!entryBox) return null;
 
-  // Visual sample entry: width at +32, height at +34 from box start
-  if (entryStart + 36 > data.length) return null;
-
   return {
     width: readU16(data, entryStart + 32),
     height: readU16(data, entryStart + 34),
@@ -305,8 +266,6 @@ function buildHevcCodecString(data: Uint8Array, box: Box): string {
 
   let codec = `hvc1.${spaceChar}${profileIdc}.${reversed.toString(16).toUpperCase()}.${tierChar}${levelIdc}`;
 
-  // Append non-zero constraint bytes
-  if (bodyStart + 12 > data.length) return codec;
   const constraintBytes: number[] = [];
   for (let i = 6; i < 12; i++) {
     constraintBytes.push(data[bodyStart + i]);
@@ -366,13 +325,12 @@ function parseCodecString(data: Uint8Array, stsd: Box): string | undefined {
     return fourcc;
   }
 
-  if (fourcc === "hvc1" || fourcc === "hev1") {
-    const hvcC = findBox(data, childrenStart, childrenEnd, "hvcC");
-    if (hvcC) return buildHevcCodecString(data, hvcC);
-    return fourcc;
-  }
-
-  if (fourcc === "dvh1" || fourcc === "dvhe") {
+  if (
+    fourcc === "hvc1" ||
+    fourcc === "hev1" ||
+    fourcc === "dvh1" ||
+    fourcc === "dvhe"
+  ) {
     const hvcC = findBox(data, childrenStart, childrenEnd, "hvcC");
     if (hvcC) return buildHevcCodecString(data, hvcC);
     return fourcc;
@@ -387,7 +345,7 @@ function parseCodecString(data: Uint8Array, stsd: Box): string | undefined {
   return fourcc;
 }
 
-export function parseMP4(data: Uint8Array): MP4Metadata {
+export function parseMP4(data: Uint8Array): ParsedMetadata {
   const moov = findBox(data, 0, data.length, "moov");
   if (!moov) {
     throw new Error("No moov box found — not a valid MP4 file");
@@ -397,8 +355,13 @@ export function parseMP4(data: Uint8Array): MP4Metadata {
   const moovEnd = moov.offset + moov.size;
 
   // Find the first video track
-  const traks = findAllBoxes(data, moovStart, moovEnd, "trak");
-  const videoTrak = traks.find((t) => isVideoTrack(data, t));
+  let videoTrak: Box | undefined;
+  for (const box of iterateBoxes(data, moovStart, moovEnd)) {
+    if (box.type === "trak" && isVideoTrack(data, box)) {
+      videoTrak = box;
+      break;
+    }
+  }
   if (!videoTrak) {
     throw new Error("No video track found in MP4 file");
   }

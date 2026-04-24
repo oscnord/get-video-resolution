@@ -1,10 +1,23 @@
 import { MediaParseError } from "../errors";
-import type { GetVideoResolutionOptions, VideoInfo } from "../types";
+import type {
+  GetVideoResolutionOptions,
+  ParsedMetadata,
+  VideoInfo,
+} from "../types";
 import { getAspectRatio } from "../utils/aspect-ratio";
+import { parseAVI } from "./avi";
 import { parseMP4 } from "./mp4";
+import { EBML_MAGIC, parseWebM } from "./webm";
+
+interface FileParseOptions {
+  signal?: AbortSignal;
+  timeout?: number;
+  fetch?: typeof globalThis.fetch;
+}
 
 async function toUint8Array(
   source: string | Buffer | Blob | ReadableStream,
+  options: FileParseOptions,
 ): Promise<Uint8Array> {
   if (source instanceof Uint8Array) {
     return source;
@@ -33,13 +46,14 @@ async function toUint8Array(
   }
 
   if (typeof source !== "string") {
-    throw new MediaParseError(`Unsupported source type`);
+    throw new MediaParseError("Unsupported source type");
   }
 
   const isUrl = source.startsWith("http://") || source.startsWith("https://");
 
   if (isUrl) {
-    const response = await fetch(source);
+    const fetchFn = options.fetch ?? globalThis.fetch;
+    const response = await fetchFn(source, { signal: options.signal });
     if (!response.ok) {
       throw new MediaParseError(
         `Failed to fetch ${source}: ${response.status}`,
@@ -53,14 +67,19 @@ async function toUint8Array(
   return new Uint8Array(await readFile(source));
 }
 
-const EBML_HEADER = 0x1a45dfa3;
-
-function detectFormat(data: Uint8Array): "mp4" | "webm" | "unknown" {
+function detectFormat(data: Uint8Array): "mp4" | "webm" | "avi" | "unknown" {
   if (data.length < 4) return "unknown";
 
   const magic =
     ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]) >>> 0;
-  if (magic === EBML_HEADER) return "webm";
+  if (magic === EBML_MAGIC) return "webm";
+
+  // AVI: RIFF....AVI
+  if (data.length >= 12) {
+    const riff = String.fromCharCode(data[0], data[1], data[2], data[3]);
+    const avi = String.fromCharCode(data[8], data[9], data[10], data[11]);
+    if (riff === "RIFF" && avi === "AVI ") return "avi";
+  }
 
   // MP4/MOV: look for ftyp or moov in first few top-level boxes
   let pos = 0;
@@ -88,25 +107,29 @@ function detectFormat(data: Uint8Array): "mp4" | "webm" | "unknown" {
 
 export async function parseFile(
   source: string | Buffer | Blob | ReadableStream,
-  _options: Pick<GetVideoResolutionOptions, "signal" | "timeout">,
+  options: Pick<GetVideoResolutionOptions, "signal" | "timeout" | "fetch">,
 ): Promise<VideoInfo> {
   try {
-    const data = await toUint8Array(source);
+    const data = await toUint8Array(source, options);
     const format = detectFormat(data);
 
-    if (format === "webm") {
-      throw new MediaParseError(
-        "WebM/MKV files are not yet supported. Supported formats: MP4, MOV.",
-      );
-    }
+    let result: ParsedMetadata;
 
-    if (format === "unknown") {
-      throw new MediaParseError(
-        "Unrecognized file format. Supported formats: MP4, MOV.",
-      );
+    switch (format) {
+      case "mp4":
+        result = parseMP4(data);
+        break;
+      case "webm":
+        result = parseWebM(data);
+        break;
+      case "avi":
+        result = parseAVI(data);
+        break;
+      default:
+        throw new MediaParseError(
+          "Unrecognized file format. Supported formats: MP4, MOV, WebM, MKV, AVI.",
+        );
     }
-
-    const result = parseMP4(data);
 
     return {
       width: result.width,

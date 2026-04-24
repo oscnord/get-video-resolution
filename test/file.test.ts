@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { MediaParseError } from "../src/errors";
+import { parseAVI } from "../src/parsers/avi";
 import { parseFile } from "../src/parsers/file";
+import { parseMP4 } from "../src/parsers/mp4";
+import { parseWebM } from "../src/parsers/webm";
 
 const fixtures = (name: string) => join(import.meta.dir, "fixtures", name);
 
@@ -146,11 +149,232 @@ describe("Buffer input", () => {
   });
 });
 
-describe("Unsupported formats", () => {
-  test("throws for non-MP4 data", async () => {
+describe("WebM VP9 720p", () => {
+  test("parses dimensions", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.width).toBe(1280);
+    expect(result.height).toBe(720);
+  });
+
+  test("parses codec", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.codec).toBe("vp09");
+  });
+
+  test("parses framerate", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.framerate).toBe(30);
+  });
+
+  test("parses duration", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.duration).toBeCloseTo(0.5, 1);
+  });
+
+  test("parses aspect ratio", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.aspectRatio).toBe("16:9");
+  });
+
+  test("detects SDR", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.hdr).toBe(false);
+  });
+});
+
+describe("MKV H.264 1080p", () => {
+  test("parses dimensions", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+  });
+
+  test("parses codec", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.codec).toBe("avc1");
+  });
+
+  test("parses framerate", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.framerate).toBe(25);
+  });
+
+  test("parses duration", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.duration).toBeCloseTo(0.5, 1);
+  });
+
+  test("parses aspect ratio", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.aspectRatio).toBe("16:9");
+  });
+});
+
+describe("AVI H.264 480p", () => {
+  test("parses dimensions", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.width).toBe(640);
+    expect(result.height).toBe(480);
+  });
+
+  test("parses codec", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.codec).toBe("avc1");
+  });
+
+  test("parses framerate", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.framerate).toBe(25);
+  });
+
+  test("parses duration", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    if (result.duration !== undefined) {
+      expect(result.duration).toBeCloseTo(0.48, 1);
+    }
+  });
+
+  test("parses aspect ratio", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.aspectRatio).toBe("4:3");
+  });
+
+  test("detects SDR", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.hdr).toBe(false);
+  });
+});
+
+describe("ReadableStream input", () => {
+  test("parses from ReadableStream", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const buffer = await readFile(fixtures("h264_1080p.mp4"));
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(buffer));
+        controller.close();
+      },
+    });
+    const result = await parseFile(stream, {});
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+  });
+});
+
+describe("Format detection edge cases", () => {
+  test("throws for unrecognized data", async () => {
     const garbage = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
     await expect(parseFile(garbage as Buffer, {})).rejects.toThrow(
       MediaParseError,
     );
+  });
+
+  test("throws for empty data", async () => {
+    const empty = new Uint8Array(0);
+    await expect(parseFile(empty as Buffer, {})).rejects.toThrow(
+      MediaParseError,
+    );
+  });
+
+  test("throws for tiny data (< 4 bytes)", async () => {
+    const tiny = new Uint8Array([0x01, 0x02]);
+    await expect(parseFile(tiny as Buffer, {})).rejects.toThrow(
+      MediaParseError,
+    );
+  });
+
+  test("detects RIFF that is not AVI as unknown", async () => {
+    // RIFF header but with "WAVE" instead of "AVI "
+    const wave = new Uint8Array(12);
+    wave.set([0x52, 0x49, 0x46, 0x46]); // RIFF
+    wave.set([0x00, 0x00, 0x00, 0x00], 4); // size
+    wave.set([0x57, 0x41, 0x56, 0x45], 8); // WAVE
+    await expect(parseFile(wave as Buffer, {})).rejects.toThrow(
+      MediaParseError,
+    );
+  });
+});
+
+describe("MP4 parser error handling", () => {
+  test("throws when moov box is missing", () => {
+    // Valid ftyp box but no moov
+    const ftyp = new Uint8Array(16);
+    ftyp.set([0x00, 0x00, 0x00, 0x10]); // size = 16
+    ftyp.set([0x66, 0x74, 0x79, 0x70], 4); // "ftyp"
+    expect(() => parseMP4(ftyp)).toThrow("No moov box found");
+  });
+
+  test("throws when no video track exists", () => {
+    // Minimal moov with an audio-only trak (hdlr type = "soun")
+    const data = new Uint8Array(80);
+    let pos = 0;
+
+    // moov box header
+    data.set([0x00, 0x00, 0x00, 0x50], pos); // size = 80
+    data.set([0x6d, 0x6f, 0x6f, 0x76], pos + 4); // "moov"
+    pos += 8;
+
+    // trak box header
+    data.set([0x00, 0x00, 0x00, 0x48], pos); // size = 72
+    data.set([0x74, 0x72, 0x61, 0x6b], pos + 4); // "trak"
+    pos += 8;
+
+    // mdia box header
+    data.set([0x00, 0x00, 0x00, 0x40], pos); // size = 64
+    data.set([0x6d, 0x64, 0x69, 0x61], pos + 4); // "mdia"
+    pos += 8;
+
+    // hdlr box header
+    data.set([0x00, 0x00, 0x00, 0x21], pos); // size = 33
+    data.set([0x68, 0x64, 0x6c, 0x72], pos + 4); // "hdlr"
+    pos += 8;
+    // version/flags (4) + pre_defined (4) + handler_type
+    data.set([0x00, 0x00, 0x00, 0x00], pos); // version/flags
+    data.set([0x00, 0x00, 0x00, 0x00], pos + 4); // pre_defined
+    data.set([0x73, 0x6f, 0x75, 0x6e], pos + 8); // "soun" (audio)
+
+    expect(() => parseMP4(data)).toThrow("No video track found");
+  });
+});
+
+describe("WebM parser error handling", () => {
+  test("throws for invalid EBML data", () => {
+    // EBML magic but corrupt after that
+    const data = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x00]);
+    expect(() => parseWebM(data)).toThrow();
+  });
+
+  test("throws when no video track exists", () => {
+    // Valid EBML header + Segment but no Tracks
+    const data = new Uint8Array(20);
+    // EBML header: ID = 1A 45 DF A3, size = 0x83 (3 bytes of data)
+    data.set([0x1a, 0x45, 0xdf, 0xa3, 0x83, 0x00, 0x00, 0x00]);
+    // Segment: ID = 18 53 80 67, size = 0x88 (8 bytes)
+    data.set(
+      [0x18, 0x53, 0x80, 0x67, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+      8,
+    );
+    expect(() => parseWebM(data)).toThrow("No video track found");
+  });
+});
+
+describe("AVI parser error handling", () => {
+  test("throws for data too small", () => {
+    const tiny = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
+    expect(() => parseAVI(tiny)).toThrow("File too small");
+  });
+
+  test("throws for invalid RIFF header", () => {
+    const data = new Uint8Array(12);
+    data.set([0x00, 0x00, 0x00, 0x00]); // not RIFF
+    expect(() => parseAVI(data)).toThrow("Not a valid AVI file");
+  });
+
+  test("throws when hdrl list is missing", () => {
+    const data = new Uint8Array(20);
+    data.set([0x52, 0x49, 0x46, 0x46]); // RIFF
+    data.set([0x0c, 0x00, 0x00, 0x00], 4); // size = 12
+    data.set([0x41, 0x56, 0x49, 0x20], 8); // AVI
+    expect(() => parseAVI(data)).toThrow("No hdrl list found");
   });
 });

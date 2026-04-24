@@ -5,11 +5,6 @@ import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
 import { isHdrCodec } from "../utils/hdr";
 
-/**
- * Parse a DASH MPD manifest and return all representations as VideoInfo[].
- * Extracts width, height, bandwidth, codecs, frameRate from <Representation> elements.
- * Extracts duration from mediaPresentationDuration on the <MPD> element.
- */
 export async function parseDash(
   source: string,
   options: FetchOptions,
