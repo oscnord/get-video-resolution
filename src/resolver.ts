@@ -1,8 +1,8 @@
-import type { VideoInfo, GetVideoResolutionOptions } from "./types";
-import { parseHls } from "./parsers/hls";
+import { UnsupportedSourceError } from "./errors";
 import { parseDash } from "./parsers/dash";
 import { parseFile } from "./parsers/file";
-import { UnsupportedSourceError } from "./errors";
+import { parseHls } from "./parsers/hls";
+import type { GetVideoResolutionOptions, VideoInfo } from "./types";
 
 /**
  * Get the resolution of a video from a local file path, URL, or binary data.
@@ -58,8 +58,7 @@ function validateSource(source: string): void {
     throw new UnsupportedSourceError("Source is required");
   }
 
-  const isUrl =
-    source.startsWith("http://") || source.startsWith("https://");
+  const isUrl = source.startsWith("http://") || source.startsWith("https://");
   const isAbsolute = source.startsWith("/") || /^[A-Za-z]:[\\/]/.test(source);
   const isRelative = source.startsWith("./") || source.startsWith("../");
 

@@ -3,9 +3,9 @@
 [![CI](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml/badge.svg)](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@oscnord/get-video-resolution)](https://www.npmjs.com/package/@oscnord/get-video-resolution)
 
-Get the resolution and metadata of a video. Supports local files (MP4, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
+Get the resolution and metadata of a video. Supports local files (MP4, MOV), HLS streams, DASH manifests, and binary input (Buffer/Blob).
 
-No ffmpeg required.
+Zero dependencies. No ffmpeg required.
 
 ## Install
 
@@ -41,7 +41,7 @@ const info = await getVideoResolution("/path/to/video.mp4");
 //   width: 1920,
 //   height: 1080,
 //   duration: 120.5,
-//   codec: "avc1",
+//   codec: "avc1.640028",
 //   framerate: 29.97,
 //   bitrate: undefined,       // available for HLS/DASH variants
 //   aspectRatio: "16:9",
@@ -176,9 +176,11 @@ The input type is detected automatically by file extension:
 
 | Extension | Parser |
 | --------- | ------ |
-| `.m3u8` | HLS -- returns the highest resolution variant |
-| `.mpd` | DASH -- returns the highest resolution representation |
-| Everything else | File parser via `@remotion/media-parser` |
+| `.m3u8` | HLS manifest parser |
+| `.mpd` | DASH manifest parser |
+| Everything else | Built-in MP4/MOV parser |
+
+> **Note:** Only MP4 and MOV containers are supported for direct file parsing. Other formats (WebM, MKV, AVI, etc.) will throw a `MediaParseError`.
 
 When `sniff: true` and the URL has no recognized extension, a HEAD request detects the content type.
 

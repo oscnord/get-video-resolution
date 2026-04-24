@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  VideoResolutionError,
-  NetworkError,
   ManifestParseError,
-  UnsupportedSourceError,
   MediaParseError,
+  NetworkError,
+  UnsupportedSourceError,
+  VideoResolutionError,
 } from "../src/errors";
 
 describe("Error classes", () => {

@@ -1,7 +1,7 @@
 {
   "name": "@oscnord/get-video-resolution",
   "version": "1.1.1",
-  "description": "Get the dimensions (width and height) of a video. Supports local files (MP4, WebM, MKV, AVI), HLS streams, and DASH manifests.",
+  "description": "Get the dimensions (width and height) of a video. Supports local files (MP4, MOV), HLS streams, and DASH manifests.",
   "type": "module",
   "exports": {
     ".": {
@@ -20,7 +20,9 @@
   ],
   "scripts": {
     "build": "bun run build.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "lint": "bunx biome check .",
+    "lint:fix": "bunx biome check --write ."
   },
   "repository": {
     "type": "git",
@@ -41,10 +43,9 @@
     "mkv"
   ],
   "homepage": "https://github.com/oscnord/get-video-resolution#readme",
-  "dependencies": {
-    "@remotion/media-parser": "^4.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@biomejs/biome": "^2.4.13",
     "@types/bun": "^1",
     "typescript": "^5"
   }

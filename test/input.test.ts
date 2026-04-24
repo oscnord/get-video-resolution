@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { getVideoResolution } from "../src/resolver";
 import { UnsupportedSourceError } from "../src/errors";
+import { getVideoResolution } from "../src/resolver";
 
 describe("Input validation", () => {
   test("throws UnsupportedSourceError for invalid string input", async () => {

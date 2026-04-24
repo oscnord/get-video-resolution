@@ -1,4 +1,4 @@
-import { readFile } from "fs/promises";
+import { readFile } from "node:fs/promises";
 import { NetworkError } from "../errors";
 
 export interface FetchOptions {
@@ -36,17 +36,18 @@ async function fetchRemote(
     const response = await fetchFn(url, { signal });
 
     if (!response.ok) {
-      throw new NetworkError(
-        `Failed to fetch ${url}: HTTP ${response.status}`,
-      );
+      throw new NetworkError(`Failed to fetch ${url}: HTTP ${response.status}`);
     }
 
     return await response.text();
   } catch (error) {
     if (error instanceof NetworkError) throw error;
-    throw new NetworkError(`Failed to fetch ${url}: ${(error as Error).message}`, {
-      cause: error,
-    });
+    throw new NetworkError(
+      `Failed to fetch ${url}: ${(error as Error).message}`,
+      {
+        cause: error,
+      },
+    );
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }

@@ -1,7 +1,7 @@
-import { describe, expect, test, mock } from "bun:test";
-import { loadManifest } from "../../src/utils/fetch";
-import { join } from "path";
+import { describe, expect, mock, test } from "bun:test";
+import { join } from "node:path";
 import { NetworkError } from "../../src/errors";
+import { loadManifest } from "../../src/utils/fetch";
 
 const fixturesDir = join(import.meta.dir, "..", "fixtures");
 
