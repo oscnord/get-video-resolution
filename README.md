@@ -117,7 +117,7 @@ const info = await getVideoResolution("https://example.com/video.mp4", {
 Pass a `Buffer`, `Blob`, or `ReadableStream` directly:
 
 ```typescript
-import { readFile } from "fs/promises";
+import { readFile } from "node:fs/promises";
 
 const buffer = await readFile("/path/to/video.mp4");
 const info = await getVideoResolution(buffer);
