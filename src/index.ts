@@ -1,9 +1,9 @@
-export { getVideoResolution } from "./resolver";
-export type { Resolution, VideoInfo, GetVideoResolutionOptions } from "./types";
 export {
-  VideoResolutionError,
-  NetworkError,
   ManifestParseError,
-  UnsupportedSourceError,
   MediaParseError,
+  NetworkError,
+  UnsupportedSourceError,
+  VideoResolutionError,
 } from "./errors";
+export { getVideoResolution } from "./resolver";
+export type { GetVideoResolutionOptions, Resolution, VideoInfo } from "./types";

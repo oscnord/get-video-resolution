@@ -14,7 +14,7 @@ jobs:
           lfs: true
       - uses: oven-sh/setup-bun@v2
       - run: bun install
-      - run: bunx biome check .
+      - run: bunx biome check --diagnostic-level=error .
       - run: bunx tsc --noEmit
       - run: bun test
       - run: bun run build
