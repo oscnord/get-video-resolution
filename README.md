@@ -3,7 +3,7 @@
 [![CI](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml/badge.svg)](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@oscnord/get-video-resolution)](https://www.npmjs.com/package/@oscnord/get-video-resolution)
 
-Get the resolution and metadata of a video. Supports local files (MP4, MOV), HLS streams, DASH manifests, and binary input (Buffer/Blob).
+Get the resolution and metadata of a video. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
 
 Zero dependencies. No ffmpeg required.
 
@@ -178,9 +178,7 @@ The input type is detected automatically by file extension:
 | --------- | ------ |
 | `.m3u8` | HLS manifest parser |
 | `.mpd` | DASH manifest parser |
-| Everything else | Built-in MP4/MOV parser |
-
-> **Note:** Only MP4 and MOV containers are supported for direct file parsing. Other formats (WebM, MKV, AVI, etc.) will throw a `MediaParseError`.
+| Everything else | Built-in file parser (MP4, MOV, WebM, MKV, AVI) |
 
 When `sniff: true` and the URL has no recognized extension, a HEAD request detects the content type.
 

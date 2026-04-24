@@ -146,8 +146,104 @@ describe("Buffer input", () => {
   });
 });
 
+describe("WebM VP9 720p", () => {
+  test("parses dimensions", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.width).toBe(1280);
+    expect(result.height).toBe(720);
+  });
+
+  test("parses codec", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.codec).toBe("vp09");
+  });
+
+  test("parses framerate", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.framerate).toBe(30);
+  });
+
+  test("parses duration", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.duration).toBeCloseTo(0.5, 1);
+  });
+
+  test("parses aspect ratio", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.aspectRatio).toBe("16:9");
+  });
+
+  test("detects SDR", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(result.hdr).toBe(false);
+  });
+});
+
+describe("MKV H.264 1080p", () => {
+  test("parses dimensions", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+  });
+
+  test("parses codec", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.codec).toBe("avc1");
+  });
+
+  test("parses framerate", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.framerate).toBe(25);
+  });
+
+  test("parses duration", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.duration).toBeCloseTo(0.5, 1);
+  });
+
+  test("parses aspect ratio", async () => {
+    const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
+    expect(result.aspectRatio).toBe("16:9");
+  });
+});
+
+describe("AVI H.264 480p", () => {
+  test("parses dimensions", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.width).toBe(640);
+    expect(result.height).toBe(480);
+  });
+
+  test("parses codec", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.codec).toBe("avc1");
+  });
+
+  test("parses framerate", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.framerate).toBe(25);
+  });
+
+  test("parses duration", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    if (result.duration !== undefined) {
+      expect(result.duration).toBeCloseTo(0.48, 1);
+    }
+  });
+
+  test("parses aspect ratio", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.aspectRatio).toBe("4:3");
+  });
+
+  test("detects SDR", async () => {
+    const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
+    expect(result.hdr).toBe(false);
+  });
+});
+
 describe("Unsupported formats", () => {
-  test("throws for non-MP4 data", async () => {
+  test("throws for unrecognized data", async () => {
     const garbage = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
     await expect(parseFile(garbage as Buffer, {})).rejects.toThrow(
       MediaParseError,

@@ -1,7 +1,7 @@
 {
   "name": "@oscnord/get-video-resolution",
   "version": "2.0.0",
-  "description": "Get the dimensions (width and height) of a video. Supports local files (MP4, MOV), HLS streams, and DASH manifests.",
+  "description": "Get the dimensions (width and height) of a video. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, and DASH manifests.",
   "type": "module",
   "exports": {
     ".": {
@@ -40,7 +40,9 @@
     "dash",
     "mp4",
     "webm",
-    "mkv"
+    "mkv",
+    "avi",
+    "mov"
   ],
   "homepage": "https://github.com/oscnord/get-video-resolution#readme",
   "dependencies": {},

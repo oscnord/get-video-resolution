@@ -1,7 +1,9 @@
 import { MediaParseError } from "../errors";
 import type { GetVideoResolutionOptions, VideoInfo } from "../types";
 import { getAspectRatio } from "../utils/aspect-ratio";
+import { parseAVI } from "./avi";
 import { parseMP4 } from "./mp4";
+import { parseWebM } from "./webm";
 
 async function toUint8Array(
   source: string | Buffer | Blob | ReadableStream,
@@ -55,12 +57,19 @@ async function toUint8Array(
 
 const EBML_HEADER = 0x1a45dfa3;
 
-function detectFormat(data: Uint8Array): "mp4" | "webm" | "unknown" {
+function detectFormat(data: Uint8Array): "mp4" | "webm" | "avi" | "unknown" {
   if (data.length < 4) return "unknown";
 
   const magic =
     ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]) >>> 0;
   if (magic === EBML_HEADER) return "webm";
+
+  // AVI: RIFF....AVI
+  if (data.length >= 12) {
+    const riff = String.fromCharCode(data[0], data[1], data[2], data[3]);
+    const avi = String.fromCharCode(data[8], data[9], data[10], data[11]);
+    if (riff === "RIFF" && avi === "AVI ") return "avi";
+  }
 
   // MP4/MOV: look for ftyp or moov in first few top-level boxes
   let pos = 0;
@@ -94,19 +103,30 @@ export async function parseFile(
     const data = await toUint8Array(source);
     const format = detectFormat(data);
 
-    if (format === "webm") {
-      throw new MediaParseError(
-        "WebM/MKV files are not yet supported. Supported formats: MP4, MOV.",
-      );
-    }
+    let result: {
+      width: number;
+      height: number;
+      duration?: number;
+      codec?: string;
+      framerate?: number;
+      hdr: boolean;
+    };
 
-    if (format === "unknown") {
-      throw new MediaParseError(
-        "Unrecognized file format. Supported formats: MP4, MOV.",
-      );
+    switch (format) {
+      case "mp4":
+        result = parseMP4(data);
+        break;
+      case "webm":
+        result = parseWebM(data);
+        break;
+      case "avi":
+        result = parseAVI(data);
+        break;
+      default:
+        throw new MediaParseError(
+          "Unrecognized file format. Supported formats: MP4, MOV, WebM, MKV, AVI.",
+        );
     }
-
-    const result = parseMP4(data);
 
     return {
       width: result.width,
