@@ -9,7 +9,6 @@ await Bun.build({
   outdir: "./dist",
   format: "esm",
   target: "node",
-  external: ["@remotion/media-parser"],
   naming: "[dir]/[name].js",
 });
 
@@ -19,7 +18,6 @@ await Bun.build({
   outdir: "./dist",
   format: "cjs",
   target: "node",
-  external: ["@remotion/media-parser"],
   naming: "[dir]/[name].cjs",
 });
 
