@@ -1,9 +1,13 @@
 import { MediaParseError } from "../errors";
-import type { GetVideoResolutionOptions, VideoInfo } from "../types";
+import type {
+  GetVideoResolutionOptions,
+  ParsedMetadata,
+  VideoInfo,
+} from "../types";
 import { getAspectRatio } from "../utils/aspect-ratio";
 import { parseAVI } from "./avi";
 import { parseMP4 } from "./mp4";
-import { parseWebM } from "./webm";
+import { EBML_MAGIC, parseWebM } from "./webm";
 
 async function toUint8Array(
   source: string | Buffer | Blob | ReadableStream,
@@ -55,14 +59,12 @@ async function toUint8Array(
   return new Uint8Array(await readFile(source));
 }
 
-const EBML_HEADER = 0x1a45dfa3;
-
 function detectFormat(data: Uint8Array): "mp4" | "webm" | "avi" | "unknown" {
   if (data.length < 4) return "unknown";
 
   const magic =
     ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]) >>> 0;
-  if (magic === EBML_HEADER) return "webm";
+  if (magic === EBML_MAGIC) return "webm";
 
   // AVI: RIFF....AVI
   if (data.length >= 12) {
@@ -103,14 +105,7 @@ export async function parseFile(
     const data = await toUint8Array(source);
     const format = detectFormat(data);
 
-    let result: {
-      width: number;
-      height: number;
-      duration?: number;
-      codec?: string;
-      framerate?: number;
-      hdr: boolean;
-    };
+    let result: ParsedMetadata;
 
     switch (format) {
       case "mp4":

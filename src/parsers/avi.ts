@@ -1,15 +1,4 @@
-export interface AVIMetadata {
-  width: number;
-  height: number;
-  duration?: number;
-  codec?: string;
-  framerate?: number;
-  hdr: boolean;
-}
-
-function _readU16LE(data: Uint8Array, offset: number): number {
-  return data[offset] | (data[offset + 1] << 8);
-}
+import type { ParsedMetadata } from "../types";
 
 function readU32LE(data: Uint8Array, offset: number): number {
   return (
@@ -32,28 +21,17 @@ function readFourCC(data: Uint8Array, offset: number): string {
 
 const CODEC_MAP: Record<string, string> = {
   H264: "avc1",
-  h264: "avc1",
   X264: "avc1",
-  x264: "avc1",
-  avc1: "avc1",
   AVC1: "avc1",
   HEVC: "hvc1",
-  hevc: "hvc1",
   HVC1: "hvc1",
-  hvc1: "hvc1",
   H265: "hvc1",
-  h265: "hvc1",
   XVID: "xvid",
-  xvid: "xvid",
   DIVX: "divx",
-  divx: "divx",
   DX50: "divx",
   FMP4: "mp4v",
-  fmp4: "mp4v",
   MP4V: "mp4v",
-  mp4v: "mp4v",
   MJPG: "mjpg",
-  mjpg: "mjpg",
   VP80: "vp08",
   VP90: "vp09",
   AV01: "av01",
@@ -61,7 +39,7 @@ const CODEC_MAP: Record<string, string> = {
 
 function mapCodec(fourcc: string): string {
   const trimmed = fourcc.replace(/\0/g, "").trim();
-  return CODEC_MAP[trimmed] ?? trimmed.toLowerCase();
+  return CODEC_MAP[trimmed.toUpperCase()] ?? trimmed.toLowerCase();
 }
 
 interface ChunkHeader {
@@ -154,7 +132,7 @@ function parseStrf(data: Uint8Array, offset: number): BitmapInfo {
   };
 }
 
-export function parseAVI(data: Uint8Array): AVIMetadata {
+export function parseAVI(data: Uint8Array): ParsedMetadata {
   // Validate RIFF header
   if (data.length < 12) {
     throw new Error("File too small to be a valid AVI");

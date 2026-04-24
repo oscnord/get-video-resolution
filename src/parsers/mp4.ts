@@ -1,13 +1,5 @@
+import type { ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
-
-export interface MP4Metadata {
-  width: number;
-  height: number;
-  duration?: number;
-  codec?: string;
-  framerate?: number;
-  hdr: boolean;
-}
 
 interface Box {
   type: string;
@@ -387,7 +379,7 @@ function parseCodecString(data: Uint8Array, stsd: Box): string | undefined {
   return fourcc;
 }
 
-export function parseMP4(data: Uint8Array): MP4Metadata {
+export function parseMP4(data: Uint8Array): ParsedMetadata {
   const moov = findBox(data, 0, data.length, "moov");
   if (!moov) {
     throw new Error("No moov box found — not a valid MP4 file");

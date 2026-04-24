@@ -1,16 +1,8 @@
+import type { ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
 
-export interface WebMMetadata {
-  width: number;
-  height: number;
-  duration?: number;
-  codec?: string;
-  framerate?: number;
-  hdr: boolean;
-}
-
 // Matroska element IDs
-const EBML_ID = 0x1a45dfa3;
+export const EBML_MAGIC = 0x1a45dfa3;
 const SEGMENT_ID = 0x18538067;
 const INFO_ID = 0x1549a966;
 const TIMESTAMP_SCALE_ID = 0x2ad7b1;
@@ -23,14 +15,6 @@ const VIDEO_ID = 0xe0;
 const PIXEL_WIDTH_ID = 0xb0;
 const PIXEL_HEIGHT_ID = 0xba;
 const DEFAULT_DURATION_ID = 0x23e383;
-
-const _CONTAINER_IDS = new Set([
-  SEGMENT_ID,
-  INFO_ID,
-  TRACKS_ID,
-  TRACK_ENTRY_ID,
-  VIDEO_ID,
-]);
 
 interface VINTResult {
   value: number;
@@ -250,12 +234,12 @@ function parseInfoElement(
   return { timestampScale, duration };
 }
 
-export function parseWebM(data: Uint8Array): WebMMetadata {
+export function parseWebM(data: Uint8Array): ParsedMetadata {
   let pos = 0;
 
   // Validate EBML header
   const headerId = readElementID(data, pos);
-  if (!headerId || headerId.value !== EBML_ID) {
+  if (!headerId || headerId.value !== EBML_MAGIC) {
     throw new Error("Not a valid EBML file");
   }
   pos += headerId.length;
@@ -283,6 +267,7 @@ export function parseWebM(data: Uint8Array): WebMMetadata {
   // Walk top-level Segment children
   let info: SegmentInfo = { timestampScale: 1_000_000 };
   let videoTrack: TrackInfo | null = null;
+  let foundInfo = false;
 
   while (pos < segEnd) {
     const id = readElementID(data, pos);
@@ -298,6 +283,7 @@ export function parseWebM(data: Uint8Array): WebMMetadata {
 
     if (id.value === INFO_ID) {
       info = parseInfoElement(data, pos, elementEnd);
+      foundInfo = true;
     } else if (id.value === TRACKS_ID) {
       // Walk TrackEntry children
       let tPos = pos;
@@ -320,8 +306,7 @@ export function parseWebM(data: Uint8Array): WebMMetadata {
       }
     }
 
-    // Stop once we have both info and tracks
-    if (videoTrack && info.duration !== undefined) break;
+    if (videoTrack && foundInfo) break;
 
     pos = elementEnd;
   }

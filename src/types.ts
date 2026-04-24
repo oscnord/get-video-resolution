@@ -15,6 +15,15 @@ export interface VideoInfo {
   colorSpace?: string;
 }
 
+export interface ParsedMetadata {
+  width: number;
+  height: number;
+  duration?: number;
+  codec?: string;
+  framerate?: number;
+  hdr: boolean;
+}
+
 export interface GetVideoResolutionOptions {
   timeout?: number;
   signal?: AbortSignal;
