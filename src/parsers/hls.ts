@@ -1,8 +1,8 @@
+import { ManifestParseError } from "../errors";
 import type { VideoInfo } from "../types";
+import { getAspectRatio } from "../utils/aspect-ratio";
 import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
-import { ManifestParseError } from "../errors";
-import { getAspectRatio } from "../utils/aspect-ratio";
 import { isHdrCodec } from "../utils/hdr";
 
 /**
@@ -32,8 +32,7 @@ interface RawVariant {
 }
 
 function extractVariants(content: string): VideoInfo[] {
-  const regex =
-    /#EXT-X-STREAM-INF:([^\n]+)/g;
+  const regex = /#EXT-X-STREAM-INF:([^\n]+)/g;
   const variants: VideoInfo[] = [];
 
   let match: RegExpExecArray | null;
@@ -85,5 +84,12 @@ function parseStreamInf(line: string): RawVariant | null {
 function extractVideoCodec(codecs: string | undefined): string | undefined {
   if (!codecs) return undefined;
   const parts = codecs.split(",").map((s) => s.trim());
-  return parts.find((p) => !p.startsWith("mp4a.") && !p.startsWith("ac-3") && !p.startsWith("ec-3")) ?? parts[0];
+  return (
+    parts.find(
+      (p) =>
+        !p.startsWith("mp4a.") &&
+        !p.startsWith("ac-3") &&
+        !p.startsWith("ec-3"),
+    ) ?? parts[0]
+  );
 }

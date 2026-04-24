@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { getVideoResolution } from "../src/resolver";
+import { join } from "node:path";
 import { UnsupportedSourceError } from "../src/errors";
-import { join } from "path";
+import { getVideoResolution } from "../src/resolver";
 
 const fixturesDir = join(import.meta.dir, "fixtures");
 
@@ -39,10 +39,9 @@ describe("getVideoResolution", () => {
   });
 
   test("pick: all returns all variants", async () => {
-    const results = await getVideoResolution(
-      join(fixturesDir, "master.m3u8"),
-      { pick: "all" },
-    );
+    const results = await getVideoResolution(join(fixturesDir, "master.m3u8"), {
+      pick: "all",
+    });
     expect(Array.isArray(results)).toBe(true);
     expect((results as any[]).length).toBe(4);
   });

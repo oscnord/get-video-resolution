@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parseFile } from "../src/parsers/file";
+import { join } from "node:path";
 import { MediaParseError } from "../src/errors";
-import { join } from "path";
+import { parseFile } from "../src/parsers/file";
 
 const fixtures = (name: string) => join(import.meta.dir, "fixtures", name);
 
@@ -129,7 +129,7 @@ describe("MOV container", () => {
 
 describe("Buffer input", () => {
   test("parses from Buffer", async () => {
-    const { readFile } = await import("fs/promises");
+    const { readFile } = await import("node:fs/promises");
     const buffer = await readFile(fixtures("h264_1080p.mp4"));
     const result = await parseFile(buffer, {});
     expect(result.width).toBe(1920);
@@ -137,7 +137,7 @@ describe("Buffer input", () => {
   });
 
   test("parses from Blob", async () => {
-    const { readFile } = await import("fs/promises");
+    const { readFile } = await import("node:fs/promises");
     const buffer = await readFile(fixtures("h264_1080p.mp4"));
     const blob = new Blob([buffer]);
     const result = await parseFile(blob, {});
@@ -149,6 +149,8 @@ describe("Buffer input", () => {
 describe("Unsupported formats", () => {
   test("throws for non-MP4 data", async () => {
     const garbage = new Uint8Array([0x00, 0x00, 0x00, 0x00]);
-    await expect(parseFile(garbage as Buffer, {})).rejects.toThrow(MediaParseError);
+    await expect(parseFile(garbage as Buffer, {})).rejects.toThrow(
+      MediaParseError,
+    );
   });
 });

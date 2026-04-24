@@ -106,7 +106,7 @@ function findBox(
   return null;
 }
 
-function findBoxPath(data: Uint8Array, path: string[]): Box | null {
+function _findBoxPath(data: Uint8Array, path: string[]): Box | null {
   let start = 0;
   let end = data.length;
   let box: Box | null = null;
@@ -162,7 +162,12 @@ function isVideoTrack(data: Uint8Array, trak: Box): boolean {
   const mdia = findBox(data, trakStart, trakEnd, "mdia");
   if (!mdia) return false;
 
-  const hdlr = findBox(data, mdia.offset + mdia.headerSize, mdia.offset + mdia.size, "hdlr");
+  const hdlr = findBox(
+    data,
+    mdia.offset + mdia.headerSize,
+    mdia.offset + mdia.size,
+    "hdlr",
+  );
   if (!hdlr) return false;
 
   // hdlr body: version/flags(4) + pre_defined(4) + handler_type(4)
@@ -172,7 +177,10 @@ function isVideoTrack(data: Uint8Array, trak: Box): boolean {
   return readFourCC(data, handlerOffset) === "vide";
 }
 
-function parseMdhd(data: Uint8Array, box: Box): { timescale: number; duration: number } | null {
+function parseMdhd(
+  data: Uint8Array,
+  box: Box,
+): { timescale: number; duration: number } | null {
   const start = box.offset + box.headerSize;
   if (start >= data.length) return null;
 
@@ -193,7 +201,11 @@ function parseMdhd(data: Uint8Array, box: Box): { timescale: number; duration: n
   };
 }
 
-function parseStts(data: Uint8Array, box: Box, timescale: number): number | undefined {
+function parseStts(
+  data: Uint8Array,
+  box: Box,
+  timescale: number,
+): number | undefined {
   const start = box.offset + box.headerSize;
   // version(1) + flags(3) + entry_count(4) + first entry: sample_count(4) + sample_delta(4)
   if (start + 16 > data.length) return undefined;
@@ -207,7 +219,10 @@ function parseStts(data: Uint8Array, box: Box, timescale: number): number | unde
   return timescale / sampleDelta;
 }
 
-function parseDimensions(data: Uint8Array, stsd: Box): { width: number; height: number; fourcc: string } | null {
+function parseDimensions(
+  data: Uint8Array,
+  stsd: Box,
+): { width: number; height: number; fourcc: string } | null {
   const start = stsd.offset + stsd.headerSize;
   // version(1) + flags(3) + entry_count(4) = 8 bytes, then first sample entry
   const entryStart = start + 8;
@@ -284,7 +299,8 @@ function buildHevcCodecString(data: Uint8Array, box: Box): string {
 
   const levelIdc = data[bodyStart + 12];
 
-  const spaceChar = profileSpace === 0 ? "" : String.fromCharCode(0x40 + profileSpace);
+  const spaceChar =
+    profileSpace === 0 ? "" : String.fromCharCode(0x40 + profileSpace);
   const tierChar = tierFlag ? "H" : "L";
 
   let codec = `hvc1.${spaceChar}${profileIdc}.${reversed.toString(16).toUpperCase()}.${tierChar}${levelIdc}`;
@@ -296,7 +312,10 @@ function buildHevcCodecString(data: Uint8Array, box: Box): string {
     constraintBytes.push(data[bodyStart + i]);
   }
   // Trim trailing zeros
-  while (constraintBytes.length > 0 && constraintBytes[constraintBytes.length - 1] === 0) {
+  while (
+    constraintBytes.length > 0 &&
+    constraintBytes[constraintBytes.length - 1] === 0
+  ) {
     constraintBytes.pop();
   }
   for (const b of constraintBytes) {
@@ -391,9 +410,10 @@ export function parseMP4(data: Uint8Array): MP4Metadata {
   // Duration & timescale from mdhd
   const mdhd = findBoxRecursive(data, trakStart, trakEnd, "mdhd");
   const timing = mdhd ? parseMdhd(data, mdhd) : null;
-  const duration = timing && timing.timescale > 0
-    ? timing.duration / timing.timescale
-    : undefined;
+  const duration =
+    timing && timing.timescale > 0
+      ? timing.duration / timing.timescale
+      : undefined;
 
   // Dimensions & codec from stsd
   const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
@@ -408,9 +428,8 @@ export function parseMP4(data: Uint8Array): MP4Metadata {
 
   // FPS from stts
   const stts = findBoxRecursive(data, trakStart, trakEnd, "stts");
-  const framerate = stts && timing
-    ? parseStts(data, stts, timing.timescale)
-    : undefined;
+  const framerate =
+    stts && timing ? parseStts(data, stts, timing.timescale) : undefined;
 
   // Codec string
   const codec = parseCodecString(data, stsd);

@@ -1,6 +1,5 @@
-import type { VideoInfo } from "../types";
-import type { GetVideoResolutionOptions } from "../types";
 import { MediaParseError } from "../errors";
+import type { GetVideoResolutionOptions, VideoInfo } from "../types";
 import { getAspectRatio } from "../utils/aspect-ratio";
 import { parseMP4 } from "./mp4";
 
@@ -42,13 +41,15 @@ async function toUint8Array(
   if (isUrl) {
     const response = await fetch(source);
     if (!response.ok) {
-      throw new MediaParseError(`Failed to fetch ${source}: ${response.status}`);
+      throw new MediaParseError(
+        `Failed to fetch ${source}: ${response.status}`,
+      );
     }
     return new Uint8Array(await response.arrayBuffer());
   }
 
   // Local file path — dynamic import to keep browser-compatible
-  const { readFile } = await import("fs/promises");
+  const { readFile } = await import("node:fs/promises");
   return new Uint8Array(await readFile(source));
 }
 
@@ -70,8 +71,14 @@ function detectFormat(data: Uint8Array): "mp4" | "webm" | "unknown" {
       data[pos + 6],
       data[pos + 7],
     );
-    if (fourcc === "ftyp" || fourcc === "moov" || fourcc === "mdat") return "mp4";
-    const size = ((data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3]) >>> 0;
+    if (fourcc === "ftyp" || fourcc === "moov" || fourcc === "mdat")
+      return "mp4";
+    const size =
+      ((data[pos] << 24) |
+        (data[pos + 1] << 16) |
+        (data[pos + 2] << 8) |
+        data[pos + 3]) >>>
+      0;
     if (size < 8) break;
     pos += size;
   }
@@ -81,7 +88,7 @@ function detectFormat(data: Uint8Array): "mp4" | "webm" | "unknown" {
 
 export async function parseFile(
   source: string | Buffer | Blob | ReadableStream,
-  options: Pick<GetVideoResolutionOptions, "signal" | "timeout">,
+  _options: Pick<GetVideoResolutionOptions, "signal" | "timeout">,
 ): Promise<VideoInfo> {
   try {
     const data = await toUint8Array(source);

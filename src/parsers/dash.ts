@@ -1,8 +1,8 @@
+import { ManifestParseError } from "../errors";
 import type { VideoInfo } from "../types";
+import { getAspectRatio } from "../utils/aspect-ratio";
 import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
-import { ManifestParseError } from "../errors";
-import { getAspectRatio } from "../utils/aspect-ratio";
 import { isHdrCodec } from "../utils/hdr";
 
 /**

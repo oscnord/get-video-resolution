@@ -1,7 +1,7 @@
-import { describe, expect, test, mock } from "bun:test";
-import { parseDash } from "../src/parsers/dash";
+import { describe, expect, mock, test } from "bun:test";
+import { join } from "node:path";
 import { ManifestParseError } from "../src/errors";
-import { join } from "path";
+import { parseDash } from "../src/parsers/dash";
 
 const fixturesDir = join(import.meta.dir, "fixtures");
 

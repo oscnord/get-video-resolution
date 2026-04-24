@@ -1,4 +1,4 @@
-import { describe, expect, test, mock } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { getVideoResolution } from "../src/resolver";
 
 describe("Content-type sniffing", () => {
@@ -7,7 +7,7 @@ describe("Content-type sniffing", () => {
 #EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
 1080p/playlist.m3u8`;
 
-    const mockFetch = mock((url: string, opts?: RequestInit) => {
+    const mockFetch = mock((_url: string, opts?: RequestInit) => {
       if (opts && opts.method === "HEAD") {
         return Promise.resolve(
           new Response("", {
@@ -35,7 +35,7 @@ describe("Content-type sniffing", () => {
   </AdaptationSet></Period>
 </MPD>`;
 
-    const mockFetch = mock((url: string, opts?: RequestInit) => {
+    const mockFetch = mock((_url: string, opts?: RequestInit) => {
       if (opts && opts.method === "HEAD") {
         return Promise.resolve(
           new Response("", {
