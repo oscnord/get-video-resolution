@@ -570,6 +570,29 @@ function writeFourCC(data: Uint8Array, offset: number, str: string) {
   for (let i = 0; i < 4; i++) data[offset + i] = str.charCodeAt(i);
 }
 
+describe("MP4 metadata", () => {
+  test("returns bitDepth for H.264", async () => {
+    const result = await parseFile(fixtures("h264_1080p.mp4"), {});
+    expect(result.bitDepth).toBe(8);
+  });
+
+  test("returns bitDepth for HEVC", async () => {
+    const result = await parseFile(fixtures("hevc_4k.mp4"), {});
+    expect(typeof result.bitDepth).toBe("number");
+  });
+
+  test("returns audioTracks if audio exists", async () => {
+    const result = await parseFile(fixtures("h264_1080p.mp4"), {});
+    if (result.audioTracks) {
+      expect(Array.isArray(result.audioTracks)).toBe(true);
+      for (const track of result.audioTracks) {
+        if (track.codec) expect(typeof track.codec).toBe("string");
+        if (track.channels) expect(typeof track.channels).toBe("number");
+      }
+    }
+  });
+});
+
 describe("Timeout handling", () => {
   test("respects timeout for URL fetches", async () => {
     const slowFetch = mock(

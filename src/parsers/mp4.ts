@@ -1,6 +1,11 @@
 import { MediaParseError } from "../errors";
-import type { ParsedMetadata } from "../types";
+import type { AudioTrack as AudioTrackType, ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
+
+interface CodecInfo {
+  codec: string;
+  bitDepth?: number;
+}
 
 interface Box {
   type: string;
@@ -129,12 +134,12 @@ function findBoxRecursive(
   return null;
 }
 
-function isVideoTrack(data: Uint8Array, trak: Box): boolean {
+function getTrackHandler(data: Uint8Array, trak: Box): string | null {
   const trakStart = trak.offset + trak.headerSize;
   const trakEnd = trak.offset + trak.size;
 
   const mdia = findBox(data, trakStart, trakEnd, "mdia");
-  if (!mdia) return false;
+  if (!mdia) return null;
 
   const hdlr = findBox(
     data,
@@ -142,13 +147,12 @@ function isVideoTrack(data: Uint8Array, trak: Box): boolean {
     mdia.offset + mdia.size,
     "hdlr",
   );
-  if (!hdlr) return false;
+  if (!hdlr) return null;
 
-  // hdlr body: version/flags(4) + pre_defined(4) + handler_type(4)
   const handlerOffset = hdlr.offset + hdlr.headerSize + 8;
-  if (handlerOffset + 4 > data.length) return false;
+  if (handlerOffset + 4 > data.length) return null;
 
-  return readFourCC(data, handlerOffset) === "vide";
+  return readFourCC(data, handlerOffset);
 }
 
 function parseMdhd(
@@ -173,6 +177,25 @@ function parseMdhd(
     timescale: readU32(data, start + 20),
     duration: readU64(data, start + 24),
   };
+}
+
+function parseMdhdLanguage(data: Uint8Array, box: Box): string | undefined {
+  const start = box.offset + box.headerSize;
+  if (start >= data.length) return undefined;
+
+  const version = data[start];
+  const langOffset = start + (version === 0 ? 20 : 32);
+  if (langOffset + 2 > data.length) return undefined;
+
+  const packed = readU16(data, langOffset);
+  if (packed === 0 || packed === 0x7fff) return undefined;
+
+  const c1 = ((packed >> 10) & 0x1f) + 0x60;
+  const c2 = ((packed >> 5) & 0x1f) + 0x60;
+  const c3 = (packed & 0x1f) + 0x60;
+  const lang = String.fromCharCode(c1, c2, c3);
+
+  return lang === "und" ? undefined : lang;
 }
 
 function parseTkhdRotation(data: Uint8Array, box: Box): number | undefined {
@@ -271,9 +294,9 @@ function reverseBits32(n: number): number {
   return result >>> 0;
 }
 
-function buildHevcCodecString(data: Uint8Array, box: Box): string {
+function buildHevcCodec(data: Uint8Array, box: Box): CodecInfo {
   const bodyStart = box.offset + box.headerSize;
-  if (bodyStart + 13 > data.length) return "hvc1";
+  if (bodyStart + 13 > data.length) return { codec: "hvc1" };
 
   const byte1 = data[bodyStart + 1];
   const profileSpace = (byte1 >> 6) & 0x3;
@@ -295,7 +318,6 @@ function buildHevcCodecString(data: Uint8Array, box: Box): string {
   for (let i = 6; i < 12; i++) {
     constraintBytes.push(data[bodyStart + i]);
   }
-  // Trim trailing zeros
   while (
     constraintBytes.length > 0 &&
     constraintBytes[constraintBytes.length - 1] === 0
@@ -306,12 +328,14 @@ function buildHevcCodecString(data: Uint8Array, box: Box): string {
     codec += `.${b.toString(16).toUpperCase()}`;
   }
 
-  return codec;
+  const bitDepth = profileIdc === 2 ? 10 : 8;
+
+  return { codec, bitDepth };
 }
 
-function buildAv1CodecString(data: Uint8Array, box: Box): string {
+function buildAv1Codec(data: Uint8Array, box: Box): CodecInfo {
   const bodyStart = box.offset + box.headerSize;
-  if (bodyStart + 4 > data.length) return "av01";
+  if (bodyStart + 4 > data.length) return { codec: "av01" };
 
   const byte1 = data[bodyStart + 1];
   const byte2 = data[bodyStart + 2];
@@ -327,27 +351,29 @@ function buildAv1CodecString(data: Uint8Array, box: Box): string {
   const levelStr = seqLevelIdx.toString().padStart(2, "0");
   const bitDepthStr = bitDepth.toString().padStart(2, "0");
 
-  return `av01.${seqProfile}.${levelStr}${tierChar}.${bitDepthStr}`;
+  return {
+    codec: `av01.${seqProfile}.${levelStr}${tierChar}.${bitDepthStr}`,
+    bitDepth,
+  };
 }
 
 function hex(n: number): string {
   return n.toString(16).padStart(2, "0");
 }
 
-function parseCodecString(data: Uint8Array, stsd: Box): string | undefined {
+function parseCodecInfo(data: Uint8Array, stsd: Box): CodecInfo {
   const entryStart = stsd.offset + stsd.headerSize + 8;
   const entryBox = readBoxHeader(data, entryStart);
-  if (!entryBox) return undefined;
+  if (!entryBox) return { codec: "unknown" };
 
   const childrenStart = entryStart + 86;
   const childrenEnd = entryStart + entryBox.size;
-
   const fourcc = entryBox.type;
 
   if (fourcc === "avc1" || fourcc === "avc3") {
     const avcC = findBox(data, childrenStart, childrenEnd, "avcC");
-    if (avcC) return buildAvcCodecString(data, avcC);
-    return fourcc;
+    if (avcC) return { codec: buildAvcCodecString(data, avcC), bitDepth: 8 };
+    return { codec: fourcc, bitDepth: 8 };
   }
 
   if (
@@ -357,17 +383,62 @@ function parseCodecString(data: Uint8Array, stsd: Box): string | undefined {
     fourcc === "dvhe"
   ) {
     const hvcC = findBox(data, childrenStart, childrenEnd, "hvcC");
-    if (hvcC) return buildHevcCodecString(data, hvcC);
-    return fourcc;
+    if (hvcC) return buildHevcCodec(data, hvcC);
+    return { codec: fourcc };
   }
 
   if (fourcc === "av01") {
     const av1C = findBox(data, childrenStart, childrenEnd, "av1C");
-    if (av1C) return buildAv1CodecString(data, av1C);
-    return fourcc;
+    if (av1C) return buildAv1Codec(data, av1C);
+    return { codec: fourcc };
   }
 
-  return fourcc;
+  return { codec: fourcc };
+}
+
+function parseAudioSampleEntry(
+  data: Uint8Array,
+  stsd: Box,
+): { codec: string; channels: number } | null {
+  const entryStart = stsd.offset + stsd.headerSize + 8;
+  const entryBox = readBoxHeader(data, entryStart);
+  if (!entryBox) return null;
+
+  if (entryStart + 20 > data.length) return null;
+
+  const channels = readU16(data, entryStart + 20);
+
+  return { codec: entryBox.type, channels };
+}
+
+function parseAudioTracks(
+  data: Uint8Array,
+  moovStart: number,
+  moovEnd: number,
+): AudioTrackType[] {
+  const tracks: AudioTrackType[] = [];
+
+  for (const box of iterateBoxes(data, moovStart, moovEnd)) {
+    if (box.type !== "trak") continue;
+    if (getTrackHandler(data, box) !== "soun") continue;
+
+    const trakStart = box.offset + box.headerSize;
+    const trakEnd = box.offset + box.size;
+
+    const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
+    const mdhd = findBoxRecursive(data, trakStart, trakEnd, "mdhd");
+
+    const language = mdhd ? parseMdhdLanguage(data, mdhd) : undefined;
+    const audio = stsd ? parseAudioSampleEntry(data, stsd) : null;
+
+    tracks.push({
+      codec: audio?.codec,
+      language,
+      channels: audio?.channels,
+    });
+  }
+
+  return tracks;
 }
 
 export function parseMP4(data: Uint8Array): ParsedMetadata {
@@ -382,7 +453,7 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   // Find the first video track
   let videoTrak: Box | undefined;
   for (const box of iterateBoxes(data, moovStart, moovEnd)) {
-    if (box.type === "trak" && isVideoTrack(data, box)) {
+    if (box.type === "trak" && getTrackHandler(data, box) === "vide") {
       videoTrak = box;
       break;
     }
@@ -421,8 +492,9 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const framerate =
     stts && timing ? parseStts(data, stts, timing.timescale) : undefined;
 
-  // Codec string
-  const codec = parseCodecString(data, stsd);
+  const codecInfo = parseCodecInfo(data, stsd);
+  const codec = codecInfo.codec === "unknown" ? undefined : codecInfo.codec;
+  const bitDepth = codecInfo.bitDepth;
 
   // HDR: try colr box first, fall back to codec string pattern
   const colrHdr = parseColr(data, stsd);
@@ -430,6 +502,8 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
 
   const tkhd = findBox(data, trakStart, trakEnd, "tkhd");
   const rotation = tkhd ? parseTkhdRotation(data, tkhd) : undefined;
+
+  const audioTracks = parseAudioTracks(data, moovStart, moovEnd);
 
   return {
     width: dims.width,
@@ -439,5 +513,7 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
     framerate: framerate ? Math.round(framerate * 1000) / 1000 : undefined,
     hdr,
     rotation,
+    bitDepth,
+    audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
   };
 }
