@@ -3,9 +3,11 @@
 [![CI](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml/badge.svg)](https://github.com/oscnord/get-video-resolution/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@oscnord/get-video-resolution)](https://www.npmjs.com/package/@oscnord/get-video-resolution)
 
-Get the resolution and metadata of a video. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
+Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
 
-Zero dependencies. No ffmpeg required.
+Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources.
+
+Only reads file headers (not the full file), so it works efficiently on files of any size. For remote URLs, uses HTTP Range requests to fetch just the first 1MB.
 
 ## Install
 
@@ -33,7 +35,7 @@ const dash = await getVideoResolution("https://example.com/stream/manifest.mpd")
 
 ### VideoInfo return type
 
-Every call returns a `VideoInfo` object with richer metadata beyond just width and height:
+Every call returns a `VideoInfo` object:
 
 ```typescript
 const info = await getVideoResolution("/path/to/video.mp4");
@@ -45,20 +47,34 @@ const info = await getVideoResolution("/path/to/video.mp4");
 //   framerate: 29.97,
 //   bitrate: undefined,       // available for HLS/DASH variants
 //   aspectRatio: "16:9",
-//   hdr: false
+//   hdr: false,
+//   rotation: 0,              // degrees (0, 90, 180, 270)
+//   bitDepth: 8,              // 8, 10, or 12
+//   encrypted: undefined,     // true when DRM detected (HLS/DASH)
+//   audioTracks: [
+//     { codec: "mp4a.40.2", language: "en", channels: 2 }
+//   ],
+//   subtitleTracks: undefined  // available for HLS/DASH
 // }
 ```
 
-### Get all variants
+### HLS/DASH variant metadata
 
-For HLS/DASH sources, use `pick: "all"` to get every variant instead of just the highest:
+For streaming sources, each variant includes manifest-level metadata:
 
 ```typescript
 const variants = await getVideoResolution(
   "https://example.com/stream/master.m3u8",
   { pick: "all" },
 );
-// VideoInfo[] - sorted as they appear in the manifest
+
+// Each variant includes:
+// - audioTracks: available audio languages and codecs
+// - subtitleTracks: available subtitle languages
+// - encrypted: true if DRM detected
+console.log(variants[0].audioTracks);
+// [{ codec: "mp4a.40.2", language: "en", channels: 2 },
+//  { codec: "mp4a.40.2", language: "sv", channels: 2 }]
 ```
 
 ### Get lowest resolution
@@ -153,6 +169,22 @@ interface VideoInfo {
   bitrate?: number;       // bits per second (HLS/DASH only)
   aspectRatio?: string;   // e.g. "16:9", "4:3"
   hdr?: boolean;          // true for HDR codecs (HLG, HDR10, Dolby Vision)
+  rotation?: number;      // degrees (0, 90, 180, 270)
+  bitDepth?: number;      // 8, 10, or 12
+  encrypted?: boolean;    // DRM detected (HLS/DASH only)
+  audioTracks?: AudioTrack[];
+  subtitleTracks?: SubtitleTrack[];  // HLS/DASH only
+}
+
+interface AudioTrack {
+  codec?: string;      // e.g. "mp4a.40.2", "opus", "ac-3"
+  language?: string;   // e.g. "en", "sv"
+  channels?: number;   // e.g. 2, 6
+}
+
+interface SubtitleTrack {
+  language?: string;   // e.g. "en", "sv"
+  codec?: string;      // e.g. "wvtt", "stpp"
 }
 ```
 
@@ -192,6 +224,9 @@ import {
   ManifestParseError,
   UnsupportedSourceError,
   MediaParseError,
+  type AudioTrack,
+  type SubtitleTrack,
+  type VideoInfo,
 } from "@oscnord/get-video-resolution";
 
 try {

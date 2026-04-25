@@ -1,4 +1,5 @@
-import type { ParsedMetadata } from "../types";
+import { MediaParseError } from "../errors";
+import type { AudioTrack, ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
 
 // Matroska element IDs
@@ -14,7 +15,12 @@ const CODEC_ID_ID = 0x86;
 const VIDEO_ID = 0xe0;
 const PIXEL_WIDTH_ID = 0xb0;
 const PIXEL_HEIGHT_ID = 0xba;
+const DISPLAY_WIDTH_ID = 0x54b0;
+const DISPLAY_HEIGHT_ID = 0x54ba;
 const DEFAULT_DURATION_ID = 0x23e383;
+const LANGUAGE_ID = 0x22b59c;
+const AUDIO_ID = 0xe1;
+const CHANNELS_ID = 0x9f;
 
 interface VINTResult {
   value: number;
@@ -102,29 +108,53 @@ const CODEC_MAP: Record<string, string> = {
   V_MPEG1: "mp1v",
   V_MPEG2: "mp2v",
   V_THEORA: "theora",
+  A_AAC: "aac",
+  "A_AAC/MPEG4/LC": "aac",
+  "A_AAC/MPEG2/LC": "aac",
+  A_OPUS: "opus",
+  A_VORBIS: "vorbis",
+  A_AC3: "ac-3",
+  A_EAC3: "ec-3",
+  A_FLAC: "flac",
+  A_DTS: "dts",
+  A_PCM_INT_LIT: "pcm",
+  A_PCM_FLOAT_IEEE: "pcm",
 };
 
 function mapCodecId(codecId: string): string {
   return CODEC_MAP[codecId] ?? codecId;
 }
 
-interface TrackInfo {
+interface VideoTrackInfo {
   width: number;
   height: number;
   codecId?: string;
   defaultDuration?: number;
 }
 
+interface AudioTrackInfo {
+  codecId?: string;
+  language?: string;
+  channels?: number;
+}
+
+type ParsedTrack =
+  | { type: "video"; info: VideoTrackInfo }
+  | { type: "audio"; info: AudioTrackInfo }
+  | null;
+
 function parseTrackEntry(
   data: Uint8Array,
   start: number,
   end: number,
-): TrackInfo | null {
+): ParsedTrack {
   let trackType: number | null = null;
   let codecId: string | undefined;
+  let defaultDuration: number | undefined;
+  let language: string | undefined;
   let width = 0;
   let height = 0;
-  let defaultDuration: number | undefined;
+  let channels: number | undefined;
 
   let pos = start;
   while (pos < end) {
@@ -149,18 +179,27 @@ function parseTrackEntry(
       case DEFAULT_DURATION_ID:
         defaultDuration = readUint(data, pos, size.value);
         break;
+      case LANGUAGE_ID:
+        language = readString(data, pos, size.value);
+        break;
       case VIDEO_ID:
         ({ width, height } = parseVideoElement(data, pos, elementEnd));
+        break;
+      case AUDIO_ID:
+        channels = parseAudioChannels(data, pos, elementEnd);
         break;
     }
 
     pos = elementEnd;
   }
 
-  if (trackType !== 1) return null;
-  if (width === 0 || height === 0) return null;
-
-  return { width, height, codecId, defaultDuration };
+  if (trackType === 1 && width > 0 && height > 0) {
+    return { type: "video", info: { width, height, codecId, defaultDuration } };
+  }
+  if (trackType === 2) {
+    return { type: "audio", info: { codecId, language, channels } };
+  }
+  return null;
 }
 
 function parseVideoElement(
@@ -168,8 +207,10 @@ function parseVideoElement(
   start: number,
   end: number,
 ): { width: number; height: number } {
-  let width = 0;
-  let height = 0;
+  let pixelWidth = 0;
+  let pixelHeight = 0;
+  let displayWidth = 0;
+  let displayHeight = 0;
 
   let pos = start;
   while (pos < end) {
@@ -185,15 +226,52 @@ function parseVideoElement(
     if (elementEnd > end) break;
 
     if (id.value === PIXEL_WIDTH_ID) {
-      width = readUint(data, pos, size.value);
+      pixelWidth = readUint(data, pos, size.value);
     } else if (id.value === PIXEL_HEIGHT_ID) {
-      height = readUint(data, pos, size.value);
+      pixelHeight = readUint(data, pos, size.value);
+    } else if (id.value === DISPLAY_WIDTH_ID) {
+      displayWidth = readUint(data, pos, size.value);
+    } else if (id.value === DISPLAY_HEIGHT_ID) {
+      displayHeight = readUint(data, pos, size.value);
     }
 
     pos = elementEnd;
   }
 
+  const width = displayWidth > 0 ? displayWidth : pixelWidth;
+  const height = displayHeight > 0 ? displayHeight : pixelHeight;
+
   return { width, height };
+}
+
+function parseAudioChannels(
+  data: Uint8Array,
+  start: number,
+  end: number,
+): number | undefined {
+  let pos = start;
+  while (pos < end) {
+    const id = readElementID(data, pos);
+    if (!id) break;
+    pos += id.length;
+
+    const size = readVINT(data, pos);
+    if (!size) break;
+    pos += size.length;
+
+    const elementEnd = pos + size.value;
+    if (elementEnd > end) break;
+
+    if (id.value === CHANNELS_ID) return readUint(data, pos, size.value);
+
+    pos = elementEnd;
+  }
+  return undefined;
+}
+
+function inferBitDepth(codec: string | undefined): number | undefined {
+  if (codec === "vp08" || codec === "theora") return 8;
+  return undefined;
 }
 
 interface SegmentInfo {
@@ -240,23 +318,23 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   // Validate EBML header
   const headerId = readElementID(data, pos);
   if (!headerId || headerId.value !== EBML_MAGIC) {
-    throw new Error("Not a valid EBML file");
+    throw new MediaParseError("Not a valid EBML file");
   }
   pos += headerId.length;
 
   const headerSize = readVINT(data, pos);
-  if (!headerSize) throw new Error("Invalid EBML header size");
+  if (!headerSize) throw new MediaParseError("Invalid EBML header size");
   pos += headerSize.length + headerSize.value;
 
   // Find Segment
   const segId = readElementID(data, pos);
   if (!segId || segId.value !== SEGMENT_ID) {
-    throw new Error("No Segment element found");
+    throw new MediaParseError("No Segment element found");
   }
   pos += segId.length;
 
   const segSize = readVINT(data, pos);
-  if (!segSize) throw new Error("Invalid Segment size");
+  if (!segSize) throw new MediaParseError("Invalid Segment size");
   pos += segSize.length;
 
   // EBML unknown size: all data bits set to 1. For any VINT length,
@@ -266,7 +344,8 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
 
   // Walk top-level Segment children
   let info: SegmentInfo = { timestampScale: 1_000_000 };
-  let videoTrack: TrackInfo | null = null;
+  let videoTrack: VideoTrackInfo | null = null;
+  const audioTracks: AudioTrackInfo[] = [];
   let foundInfo = false;
 
   while (pos < segEnd) {
@@ -285,7 +364,6 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
       info = parseInfoElement(data, pos, elementEnd);
       foundInfo = true;
     } else if (id.value === TRACKS_ID) {
-      // Walk TrackEntry children
       let tPos = pos;
       while (tPos < elementEnd) {
         const tId = readElementID(data, tPos);
@@ -298,8 +376,10 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
 
         const tEnd = tPos + tSize.value;
 
-        if (tId.value === TRACK_ENTRY_ID && !videoTrack) {
-          videoTrack = parseTrackEntry(data, tPos, tEnd);
+        if (tId.value === TRACK_ENTRY_ID) {
+          const track = parseTrackEntry(data, tPos, tEnd);
+          if (track?.type === "video" && !videoTrack) videoTrack = track.info;
+          else if (track?.type === "audio") audioTracks.push(track.info);
         }
 
         tPos = tEnd;
@@ -312,7 +392,7 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   }
 
   if (!videoTrack) {
-    throw new Error("No video track found in WebM/MKV file");
+    throw new MediaParseError("No video track found in WebM/MKV file");
   }
 
   const codec = videoTrack.codecId ? mapCodecId(videoTrack.codecId) : undefined;
@@ -324,6 +404,12 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
       ? (info.duration * info.timestampScale) / 1e9
       : undefined;
 
+  const mappedAudio: AudioTrack[] = audioTracks.map((t) => ({
+    codec: t.codecId ? mapCodecId(t.codecId) : undefined,
+    language: t.language && t.language !== "und" ? t.language : undefined,
+    channels: t.channels,
+  }));
+
   return {
     width: videoTrack.width,
     height: videoTrack.height,
@@ -331,5 +417,7 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
     codec,
     framerate,
     hdr: isHdrCodec(codec),
+    bitDepth: inferBitDepth(codec),
+    audioTracks: mappedAudio.length > 0 ? mappedAudio : undefined,
   };
 }

@@ -1,5 +1,5 @@
 import { ManifestParseError } from "../errors";
-import type { VideoInfo } from "../types";
+import type { AudioTrack, SubtitleTrack, VideoInfo } from "../types";
 import { getAspectRatio } from "../utils/aspect-ratio";
 import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
@@ -10,13 +10,46 @@ export async function parseHls(
   options: FetchOptions,
 ): Promise<VideoInfo[]> {
   const content = await loadManifest(source, options);
-  const variants = extractVariants(content);
+  const rawVariants = extractRawVariants(content);
 
-  if (variants.length === 0) {
+  if (rawVariants.length === 0) {
     throw new ManifestParseError("No RESOLUTION found in HLS manifest");
   }
 
-  return variants;
+  const encrypted = detectEncryption(content) ? true : undefined;
+  let audioTracks = extractAudioTracks(content);
+  const subtitleTracks = extractSubtitleTracks(content);
+
+  const audioCodec = rawVariants
+    .map((v) => extractAudioCodec(v.codecs))
+    .find(Boolean);
+
+  if (audioTracks.length === 0) {
+    if (audioCodec) {
+      audioTracks = [{ codec: audioCodec }];
+    }
+  } else if (audioCodec) {
+    audioTracks = audioTracks.map((t) => ({
+      ...t,
+      codec: t.codec ?? audioCodec,
+    }));
+  }
+
+  return rawVariants.map((raw) => {
+    const videoCodec = extractVideoCodec(raw.codecs);
+    return {
+      width: raw.width,
+      height: raw.height,
+      bitrate: raw.bandwidth,
+      codec: videoCodec,
+      framerate: raw.frameRate,
+      aspectRatio: getAspectRatio(raw.width, raw.height),
+      hdr: isHdrCodec(videoCodec),
+      encrypted,
+      audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
+      subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
+    };
+  });
 }
 
 interface RawVariant {
@@ -27,27 +60,15 @@ interface RawVariant {
   frameRate?: number;
 }
 
-function extractVariants(content: string): VideoInfo[] {
+function extractRawVariants(content: string): RawVariant[] {
   const regex = /#EXT-X-STREAM-INF:([^\n]+)/g;
-  const variants: VideoInfo[] = [];
+  const variants: RawVariant[] = [];
 
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
     const line = match[1];
     const raw = parseStreamInf(line);
-    if (!raw) continue;
-
-    const videoCodec = extractVideoCodec(raw.codecs);
-
-    variants.push({
-      width: raw.width,
-      height: raw.height,
-      bitrate: raw.bandwidth,
-      codec: videoCodec,
-      framerate: raw.frameRate,
-      aspectRatio: getAspectRatio(raw.width, raw.height),
-      hdr: isHdrCodec(videoCodec),
-    });
+    if (raw) variants.push(raw);
   }
 
   return variants;
@@ -83,4 +104,63 @@ function extractVideoCodec(codecs: string | undefined): string | undefined {
         !p.startsWith("ec-3"),
     ) ?? parts[0]
   );
+}
+
+function extractAudioCodec(codecs: string | undefined): string | undefined {
+  if (!codecs) return undefined;
+  const parts = codecs.split(",").map((s) => s.trim());
+  return parts.find(
+    (p) =>
+      p.startsWith("mp4a.") ||
+      p.startsWith("ac-3") ||
+      p.startsWith("ec-3") ||
+      p.startsWith("opus") ||
+      p.startsWith("flac"),
+  );
+}
+
+function detectEncryption(content: string): boolean {
+  return /#EXT-X-(?:SESSION-)?KEY:.*METHOD=(?!NONE)\w+/i.test(content);
+}
+
+function extractAudioTracks(content: string): AudioTrack[] {
+  const regex = /#EXT-X-MEDIA:TYPE=AUDIO[^\n]*/g;
+  const tracks: AudioTrack[] = [];
+  const seen = new Set<string>();
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    const line = match[0];
+    const langMatch = /LANGUAGE="([^"]+)"/.exec(line);
+    const chMatch = /CHANNELS="(\d+)"/.exec(line);
+
+    const key = langMatch?.[1] ?? "default";
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    tracks.push({
+      language: langMatch?.[1],
+      channels: chMatch ? parseInt(chMatch[1], 10) : undefined,
+    });
+  }
+
+  return tracks;
+}
+
+function extractSubtitleTracks(content: string): SubtitleTrack[] {
+  const regex = /#EXT-X-MEDIA:TYPE=SUBTITLES[^\n]*/g;
+  const tracks: SubtitleTrack[] = [];
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    const line = match[0];
+    const langMatch = /LANGUAGE="([^"]+)"/.exec(line);
+
+    tracks.push({
+      language: langMatch?.[1],
+      codec: "wvtt",
+    });
+  }
+
+  return tracks;
 }

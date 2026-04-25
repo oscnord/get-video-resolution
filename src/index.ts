@@ -6,4 +6,10 @@ export {
   VideoResolutionError,
 } from "./errors";
 export { getVideoResolution } from "./resolver";
-export type { GetVideoResolutionOptions, Resolution, VideoInfo } from "./types";
+export type {
+  AudioTrack,
+  GetVideoResolutionOptions,
+  Resolution,
+  SubtitleTrack,
+  VideoInfo,
+} from "./types";
