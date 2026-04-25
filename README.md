@@ -45,7 +45,10 @@ const info = await getVideoResolution("/path/to/video.mp4");
 //   framerate: 29.97,
 //   bitrate: undefined,       // available for HLS/DASH variants
 //   aspectRatio: "16:9",
-//   hdr: false
+//   hdr: false,
+//   rotation: 0,
+//   bitDepth: 8,
+//   audioTracks: [{ codec: "mp4a.40.2", language: "en", channels: 2 }]
 // }
 ```
 
@@ -153,6 +156,22 @@ interface VideoInfo {
   bitrate?: number;       // bits per second (HLS/DASH only)
   aspectRatio?: string;   // e.g. "16:9", "4:3"
   hdr?: boolean;          // true for HDR codecs (HLG, HDR10, Dolby Vision)
+  rotation?: number;      // degrees (0, 90, 180, 270)
+  bitDepth?: number;      // 8, 10, or 12
+  encrypted?: boolean;    // DRM detected (HLS/DASH only)
+  audioTracks?: AudioTrack[];
+  subtitleTracks?: SubtitleTrack[];  // HLS/DASH only
+}
+
+interface AudioTrack {
+  codec?: string;      // e.g. "mp4a.40.2", "opus", "ac-3"
+  language?: string;   // e.g. "en", "sv"
+  channels?: number;   // e.g. 2, 6
+}
+
+interface SubtitleTrack {
+  language?: string;   // e.g. "en", "sv"
+  codec?: string;      // e.g. "wvtt", "stpp"
 }
 ```
 
