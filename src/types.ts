@@ -13,6 +13,10 @@ export interface VideoInfo {
   aspectRatio?: string;
   hdr?: boolean;
   rotation?: number;
+  bitDepth?: number;
+  encrypted?: boolean;
+  audioTracks?: AudioTrack[];
+  subtitleTracks?: SubtitleTrack[];
 }
 
 export interface ParsedMetadata {
@@ -23,6 +27,19 @@ export interface ParsedMetadata {
   framerate?: number;
   hdr: boolean;
   rotation?: number;
+  bitDepth?: number;
+  audioTracks?: AudioTrack[];
+}
+
+export interface AudioTrack {
+  codec?: string;
+  language?: string;
+  channels?: number;
+}
+
+export interface SubtitleTrack {
+  language?: string;
+  codec?: string;
 }
 
 export interface GetVideoResolutionOptions {

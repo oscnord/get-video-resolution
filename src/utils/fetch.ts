@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { NetworkError } from "../errors";
 
 export interface FetchOptions {
@@ -26,6 +25,7 @@ export async function loadManifest(
   if (source.startsWith("http://") || source.startsWith("https://")) {
     return fetchRemote(source, options);
   }
+  const { readFile } = await import("node:fs/promises");
   return readFile(source, "utf-8");
 }
 
