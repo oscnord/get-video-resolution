@@ -182,12 +182,32 @@ describe("WebM VP9 720p", () => {
   });
 });
 
+describe("MP4 with audio", () => {
+  test("extracts audio tracks", async () => {
+    const result = await parseFile(fixtures("h264_1080p_audio.mp4"), {});
+    expect(result.audioTracks).toHaveLength(1);
+    expect(result.audioTracks![0].codec).toBe("mp4a");
+    expect(result.audioTracks![0].language).toBe("eng");
+    expect(result.audioTracks![0].channels).toBe(2);
+  });
+});
+
 describe("WebM metadata", () => {
   test("returns bitDepth for VP9", async () => {
     const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
     expect(
       result.bitDepth === undefined || typeof result.bitDepth === "number",
     ).toBe(true);
+  });
+});
+
+describe("WebM with audio", () => {
+  test("extracts audio tracks", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p_audio.webm"), {});
+    expect(result.audioTracks).toHaveLength(1);
+    expect(result.audioTracks![0].codec).toBe("opus");
+    expect(result.audioTracks![0].language).toBe("eng");
+    expect(result.audioTracks![0].channels).toBe(2);
   });
 });
 

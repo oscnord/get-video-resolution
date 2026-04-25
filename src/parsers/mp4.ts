@@ -402,9 +402,10 @@ function parseAudioSampleEntry(
   const entryBox = readBoxHeader(data, entryStart);
   if (!entryBox) return null;
 
-  if (entryStart + 20 > data.length) return null;
+  // Audio sample entry: 8 header + 6 reserved + 2 data_ref_index + 8 reserved + 2 channelcount
+  if (entryStart + 26 > data.length) return null;
 
-  const channels = readU16(data, entryStart + 20);
+  const channels = readU16(data, entryStart + 24);
 
   return { codec: entryBox.type, channels };
 }

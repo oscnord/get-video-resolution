@@ -104,6 +104,36 @@ describe("HLS parser", () => {
     expect(results[0].audioTracks![0].codec).toBe("mp4a.40.2");
   });
 
+  test("parses audio and subtitle tracks from full manifest", async () => {
+    const results = await parseHls(join(fixturesDir, "master_full.m3u8"), {});
+    expect(results).toHaveLength(3);
+
+    const hd = results.find((r) => r.width === 1920)!;
+    expect(hd.audioTracks).toHaveLength(2);
+    expect(hd.audioTracks![0].language).toBe("en");
+    expect(hd.audioTracks![0].codec).toBe("mp4a.40.2");
+    expect(hd.audioTracks![0].channels).toBe(2);
+    expect(hd.audioTracks![1].language).toBe("sv");
+
+    expect(hd.subtitleTracks).toHaveLength(2);
+    expect(hd.subtitleTracks![0].language).toBe("en");
+    expect(hd.subtitleTracks![0].codec).toBe("wvtt");
+    expect(hd.subtitleTracks![1].language).toBe("sv");
+  });
+
+  test("detects encryption from fixture", async () => {
+    const results = await parseHls(
+      join(fixturesDir, "master_encrypted.m3u8"),
+      {},
+    );
+    expect(results[0].encrypted).toBe(true);
+  });
+
+  test("no encryption on unencrypted fixture", async () => {
+    const results = await parseHls(join(fixturesDir, "master.m3u8"), {});
+    expect(results[0].encrypted).toBeUndefined();
+  });
+
   test("extracts subtitle tracks", async () => {
     const manifest = `#EXTM3U
 #EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",LANGUAGE="en",NAME="English"

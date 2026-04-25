@@ -138,6 +138,45 @@ describe("DASH parser", () => {
     expect(results[0].audioTracks![1].language).toBe("sv");
   });
 
+  test("parses audio and subtitle tracks from full manifest", async () => {
+    const results = await parseDash(join(fixturesDir, "manifest_full.mpd"), {});
+    expect(results).toHaveLength(3);
+
+    const hd = results.find((r) => r.width === 1920)!;
+    expect(hd.audioTracks).toHaveLength(2);
+    expect(hd.audioTracks![0].language).toBe("en");
+    expect(hd.audioTracks![0].codec).toBe("mp4a.40.2");
+    expect(hd.audioTracks![1].language).toBe("sv");
+
+    expect(hd.subtitleTracks).toHaveLength(2);
+    expect(hd.subtitleTracks![0].language).toBe("en");
+    expect(hd.subtitleTracks![0].codec).toBe("stpp");
+    expect(hd.subtitleTracks![1].language).toBe("sv");
+  });
+
+  test("detects encryption from fixture", async () => {
+    const results = await parseDash(
+      join(fixturesDir, "manifest_encrypted.mpd"),
+      {},
+    );
+    expect(results[0].encrypted).toBe(true);
+  });
+
+  test("no encryption on unencrypted fixture", async () => {
+    const results = await parseDash(join(fixturesDir, "manifest.mpd"), {});
+    expect(results[0].encrypted).toBeUndefined();
+  });
+
+  test("scopes to first period from fixture", async () => {
+    const results = await parseDash(
+      join(fixturesDir, "manifest_multiperiod.mpd"),
+      {},
+    );
+    expect(results).toHaveLength(2);
+    expect(results[0].width).toBe(1920);
+    expect(results[1].width).toBe(1280);
+  });
+
   test("extracts subtitle tracks", async () => {
     const mpd = `<?xml version="1.0"?>
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT10S">
