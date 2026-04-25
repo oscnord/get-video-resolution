@@ -67,4 +67,95 @@ describe("DASH parser", () => {
     expect(results[0].hdr).toBe(true);
     expect(results[0].duration).toBe(30);
   });
+
+  test("scopes to first period in multi-period manifest", async () => {
+    const mpd = `<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT60S">
+  <Period>
+    <AdaptationSet mimeType="video/mp4">
+      <Representation width="1920" height="1080" bandwidth="5000000" codecs="avc1.640028"/>
+    </AdaptationSet>
+  </Period>
+  <Period>
+    <AdaptationSet mimeType="video/mp4">
+      <Representation width="640" height="360" bandwidth="800000" codecs="avc1.4d401e"/>
+    </AdaptationSet>
+  </Period>
+</MPD>`;
+    const mockFetch = mock(() =>
+      Promise.resolve(new Response(mpd, { status: 200 })),
+    );
+    const results = await parseDash("https://example.com/manifest.mpd", {
+      fetch: mockFetch,
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].width).toBe(1920);
+  });
+
+  test("detects ContentProtection as encrypted", async () => {
+    const mpd = `<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT10S">
+  <Period>
+    <AdaptationSet mimeType="video/mp4">
+      <ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"/>
+      <Representation width="1920" height="1080" bandwidth="5000000" codecs="avc1.640028"/>
+    </AdaptationSet>
+  </Period>
+</MPD>`;
+    const mockFetch = mock(() =>
+      Promise.resolve(new Response(mpd, { status: 200 })),
+    );
+    const results = await parseDash("https://example.com/manifest.mpd", {
+      fetch: mockFetch,
+    });
+    expect(results[0].encrypted).toBe(true);
+  });
+
+  test("extracts audio tracks from audio AdaptationSet", async () => {
+    const mpd = `<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT10S">
+  <Period>
+    <AdaptationSet mimeType="video/mp4">
+      <Representation width="1920" height="1080" bandwidth="5000000" codecs="avc1.640028"/>
+    </AdaptationSet>
+    <AdaptationSet mimeType="audio/mp4" lang="en">
+      <Representation bandwidth="128000" codecs="mp4a.40.2"/>
+    </AdaptationSet>
+    <AdaptationSet mimeType="audio/mp4" lang="sv">
+      <Representation bandwidth="128000" codecs="mp4a.40.2"/>
+    </AdaptationSet>
+  </Period>
+</MPD>`;
+    const mockFetch = mock(() =>
+      Promise.resolve(new Response(mpd, { status: 200 })),
+    );
+    const results = await parseDash("https://example.com/manifest.mpd", {
+      fetch: mockFetch,
+    });
+    expect(results[0].audioTracks).toHaveLength(2);
+    expect(results[0].audioTracks![0].language).toBe("en");
+    expect(results[0].audioTracks![0].codec).toBe("mp4a.40.2");
+    expect(results[0].audioTracks![1].language).toBe("sv");
+  });
+
+  test("extracts subtitle tracks", async () => {
+    const mpd = `<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT10S">
+  <Period>
+    <AdaptationSet mimeType="video/mp4">
+      <Representation width="1920" height="1080" bandwidth="5000000" codecs="avc1.640028"/>
+    </AdaptationSet>
+    <AdaptationSet mimeType="application/ttml+xml" lang="en" contentType="text"/>
+  </Period>
+</MPD>`;
+    const mockFetch = mock(() =>
+      Promise.resolve(new Response(mpd, { status: 200 })),
+    );
+    const results = await parseDash("https://example.com/manifest.mpd", {
+      fetch: mockFetch,
+    });
+    expect(results[0].subtitleTracks).toHaveLength(1);
+    expect(results[0].subtitleTracks![0].language).toBe("en");
+    expect(results[0].subtitleTracks![0].codec).toBe("stpp");
+  });
 });
