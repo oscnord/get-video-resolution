@@ -133,10 +133,12 @@ async function parseFromUrl(
           signal,
           `bytes=${start}-${totalSize - 1}`,
         );
-        return parseData(
-          new Uint8Array(await tailResponse.arrayBuffer()),
-          "mp4",
-        );
+        const tailData = new Uint8Array(await tailResponse.arrayBuffer());
+        const moovOffset = findMoovInTail(tailData);
+        if (moovOffset >= 0) {
+          return parseData(tailData.subarray(moovOffset), "mp4");
+        }
+        return parseData(tailData, "mp4");
       }
     }
 
@@ -153,8 +155,105 @@ async function parseFromUrl(
   }
 }
 
+function findMoovInProbe(
+  data: Uint8Array,
+): { offset: number; size: number } | null {
+  let pos = 0;
+  while (pos + 8 <= data.length) {
+    const size =
+      ((data[pos] << 24) |
+        (data[pos + 1] << 16) |
+        (data[pos + 2] << 8) |
+        data[pos + 3]) >>>
+      0;
+    if (
+      data[pos + 4] === 0x6d &&
+      data[pos + 5] === 0x6f &&
+      data[pos + 6] === 0x6f &&
+      data[pos + 7] === 0x76
+    ) {
+      return { offset: pos, size };
+    }
+    if (size < 8) break;
+    pos += size;
+  }
+  return null;
+}
+
+function findMoovInTail(data: Uint8Array): number {
+  // Scan backwards for "moov" fourcc at offset +4 from a box header
+  for (let i = data.length - 8; i >= 0; i--) {
+    if (
+      data[i + 4] === 0x6d &&
+      data[i + 5] === 0x6f &&
+      data[i + 6] === 0x6f &&
+      data[i + 7] === 0x76
+    ) {
+      const size =
+        ((data[i] << 24) |
+          (data[i + 1] << 16) |
+          (data[i + 2] << 8) |
+          data[i + 3]) >>>
+        0;
+      if (size >= 8 && i + size <= data.length) return i;
+    }
+  }
+  return -1;
+}
+
+async function parseFromLocalFile(path: string): Promise<VideoInfo> {
+  const { open, stat } = await import("node:fs/promises");
+  const fileStats = await stat(path);
+  const fileSize = fileStats.size;
+  const handle = await open(path, "r");
+
+  try {
+    const probeSize = Math.min(PROBE_SIZE, fileSize);
+    const probe = new Uint8Array(probeSize);
+    await handle.read(probe, 0, probeSize, 0);
+
+    const format = detectFormat(probe);
+
+    if (format === "mp4") {
+      try {
+        return parseData(probe, format);
+      } catch (error) {
+        if (!(error instanceof MediaParseError)) throw error;
+
+        // moov at end of file — read tail then locate moov within it
+        if (error.message.includes("No moov box") && fileSize > PROBE_SIZE) {
+          const tailSize = Math.min(PROBE_SIZE, fileSize);
+          const tail = new Uint8Array(tailSize);
+          await handle.read(tail, 0, tailSize, fileSize - tailSize);
+
+          const moovOffset = findMoovInTail(tail);
+          if (moovOffset >= 0) {
+            return parseData(tail.subarray(moovOffset), "mp4");
+          }
+
+          return parseData(tail, "mp4");
+        }
+
+        // moov found but extends beyond probe — read the full moov box
+        const moov = findMoovInProbe(probe);
+        if (moov && moov.size > probeSize - moov.offset) {
+          const moovData = new Uint8Array(moov.size);
+          await handle.read(moovData, 0, moov.size, moov.offset);
+          return parseData(moovData, "mp4");
+        }
+
+        throw error;
+      }
+    }
+
+    return parseData(probe, format);
+  } finally {
+    await handle.close();
+  }
+}
+
 async function toUint8Array(
-  source: Buffer | Blob | ReadableStream | string,
+  source: Buffer | Blob | ReadableStream,
 ): Promise<Uint8Array> {
   if (source instanceof Uint8Array) return source;
 
@@ -180,12 +279,7 @@ async function toUint8Array(
     return result;
   }
 
-  if (typeof source !== "string") {
-    throw new MediaParseError("Unsupported source type");
-  }
-
-  const { readFile } = await import("node:fs/promises");
-  return new Uint8Array(await readFile(source));
+  throw new MediaParseError("Unsupported source type");
 }
 
 export async function parseFile(
@@ -193,11 +287,11 @@ export async function parseFile(
   options: Pick<GetVideoResolutionOptions, "signal" | "timeout" | "fetch">,
 ): Promise<VideoInfo> {
   try {
-    if (
-      typeof source === "string" &&
-      (source.startsWith("http://") || source.startsWith("https://"))
-    ) {
-      return await parseFromUrl(source, options);
+    if (typeof source === "string") {
+      if (source.startsWith("http://") || source.startsWith("https://")) {
+        return await parseFromUrl(source, options);
+      }
+      return await parseFromLocalFile(source);
     }
 
     const data = await toUint8Array(source);
