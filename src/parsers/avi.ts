@@ -1,3 +1,4 @@
+import { MediaParseError } from "../errors";
 import type { ParsedMetadata } from "../types";
 
 function readU32LE(data: Uint8Array, offset: number): number {
@@ -135,20 +136,20 @@ function parseStrf(data: Uint8Array, offset: number): BitmapInfo {
 export function parseAVI(data: Uint8Array): ParsedMetadata {
   // Validate RIFF header
   if (data.length < 12) {
-    throw new Error("File too small to be a valid AVI");
+    throw new MediaParseError("File too small to be a valid AVI");
   }
 
   const riff = readFourCC(data, 0);
   const aviType = readFourCC(data, 8);
   if (riff !== "RIFF" || aviType !== "AVI ") {
-    throw new Error("Not a valid AVI file");
+    throw new MediaParseError("Not a valid AVI file");
   }
 
   const riffEnd = Math.min(8 + readU32LE(data, 4), data.length);
 
   // Find hdrl LIST
   const hdrl = findList(data, 12, riffEnd, "hdrl");
-  if (!hdrl) throw new Error("No hdrl list found in AVI");
+  if (!hdrl) throw new MediaParseError("No hdrl list found in AVI");
 
   const hdrlStart = hdrl.offset + 12; // skip LIST + size + "hdrl"
   const hdrlEnd = hdrl.offset + 8 + hdrl.size;
@@ -228,7 +229,7 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
   if (!fps) fps = fallbackFps;
 
   if (width === 0 || height === 0) {
-    throw new Error("No video dimensions found in AVI file");
+    throw new MediaParseError("No video dimensions found in AVI file");
   }
 
   const framerate = fps ? Math.round(fps * 1000) / 1000 : undefined;

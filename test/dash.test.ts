@@ -30,6 +30,25 @@ describe("DASH parser", () => {
     ).rejects.toBeInstanceOf(ManifestParseError);
   });
 
+  test("parses Representation with height before width", async () => {
+    const mpd = `<?xml version="1.0"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT10S">
+  <Period><AdaptationSet mimeType="video/mp4">
+    <Representation height="720" width="1280" bandwidth="2800000" codecs="avc1.4d4020" frameRate="30"/>
+  </AdaptationSet></Period>
+</MPD>`;
+    const mockFetch = mock(() =>
+      Promise.resolve(new Response(mpd, { status: 200 })),
+    );
+    const results = await parseDash("https://example.com/test.mpd", {
+      fetch: mockFetch,
+    });
+    expect(results).toHaveLength(1);
+    expect(results[0].width).toBe(1280);
+    expect(results[0].height).toBe(720);
+    expect(results[0].codec).toBe("avc1.4d4020");
+  });
+
   test("uses custom fetch for remote URLs", async () => {
     const mpd = `<?xml version="1.0"?>
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT30S">

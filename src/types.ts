@@ -12,6 +12,7 @@ export interface VideoInfo {
   bitrate?: number;
   aspectRatio?: string;
   hdr?: boolean;
+  rotation?: number;
 }
 
 export interface ParsedMetadata {
@@ -21,6 +22,7 @@ export interface ParsedMetadata {
   codec?: string;
   framerate?: number;
   hdr: boolean;
+  rotation?: number;
 }
 
 export interface GetVideoResolutionOptions {

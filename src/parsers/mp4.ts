@@ -1,3 +1,4 @@
+import { MediaParseError } from "../errors";
 import type { ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
 
@@ -35,6 +36,15 @@ function readU32(data: Uint8Array, offset: number): number {
       (data[offset + 2] << 8) |
       data[offset + 3]) >>>
     0
+  );
+}
+
+function readI32(data: Uint8Array, offset: number): number {
+  return (
+    (data[offset] << 24) |
+    (data[offset + 1] << 16) |
+    (data[offset + 2] << 8) |
+    data[offset + 3]
   );
 }
 
@@ -163,6 +173,21 @@ function parseMdhd(
     timescale: readU32(data, start + 20),
     duration: readU64(data, start + 24),
   };
+}
+
+function parseTkhdRotation(data: Uint8Array, box: Box): number | undefined {
+  const start = box.offset + box.headerSize;
+  if (start >= data.length) return undefined;
+
+  const version = data[start];
+  const matrixOffset = start + (version === 0 ? 40 : 52);
+  if (matrixOffset + 36 > data.length) return undefined;
+
+  const a = readI32(data, matrixOffset) / 65536;
+  const b = readI32(data, matrixOffset + 4) / 65536;
+
+  const degrees = Math.round(Math.atan2(b, a) * (180 / Math.PI));
+  return degrees < 0 ? degrees + 360 : degrees;
 }
 
 function parseStts(
@@ -348,7 +373,7 @@ function parseCodecString(data: Uint8Array, stsd: Box): string | undefined {
 export function parseMP4(data: Uint8Array): ParsedMetadata {
   const moov = findBox(data, 0, data.length, "moov");
   if (!moov) {
-    throw new Error("No moov box found — not a valid MP4 file");
+    throw new MediaParseError("No moov box found — not a valid MP4 file");
   }
 
   const moovStart = moov.offset + moov.headerSize;
@@ -363,7 +388,7 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
     }
   }
   if (!videoTrak) {
-    throw new Error("No video track found in MP4 file");
+    throw new MediaParseError("No video track found in MP4 file");
   }
 
   // We need to work with absolute offsets, so slice relative paths carefully
@@ -381,12 +406,14 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   // Dimensions & codec from stsd
   const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
   if (!stsd) {
-    throw new Error("No sample description (stsd) found in video track");
+    throw new MediaParseError(
+      "No sample description (stsd) found in video track",
+    );
   }
 
   const dims = parseDimensions(data, stsd);
   if (!dims) {
-    throw new Error("Could not read video dimensions from stsd");
+    throw new MediaParseError("Could not read video dimensions from stsd");
   }
 
   // FPS from stts
@@ -401,6 +428,9 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const colrHdr = parseColr(data, stsd);
   const hdr = colrHdr ?? isHdrCodec(codec);
 
+  const tkhd = findBox(data, trakStart, trakEnd, "tkhd");
+  const rotation = tkhd ? parseTkhdRotation(data, tkhd) : undefined;
+
   return {
     width: dims.width,
     height: dims.height,
@@ -408,5 +438,6 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
     codec,
     framerate: framerate ? Math.round(framerate * 1000) / 1000 : undefined,
     hdr,
+    rotation,
   };
 }

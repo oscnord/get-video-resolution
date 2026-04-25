@@ -7,6 +7,18 @@ export interface FetchOptions {
   timeout?: number;
 }
 
+export function buildSignal(options: FetchOptions): {
+  signal: AbortSignal | undefined;
+  cleanup: () => void;
+} {
+  if (options.signal) return { signal: options.signal, cleanup: () => {} };
+  if (!options.timeout) return { signal: undefined, cleanup: () => {} };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), options.timeout);
+  return { signal: controller.signal, cleanup: () => clearTimeout(timeoutId) };
+}
+
 export async function loadManifest(
   source: string,
   options: FetchOptions,
@@ -22,15 +34,7 @@ async function fetchRemote(
   options: FetchOptions,
 ): Promise<string> {
   const fetchFn = options.fetch ?? globalThis.fetch;
-
-  let signal = options.signal;
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-  if (!signal && options.timeout) {
-    const controller = new AbortController();
-    signal = controller.signal;
-    timeoutId = setTimeout(() => controller.abort(), options.timeout);
-  }
+  const { signal, cleanup } = buildSignal(options);
 
   try {
     const response = await fetchFn(url, { signal });
@@ -49,6 +53,6 @@ async function fetchRemote(
       },
     );
   } finally {
-    if (timeoutId) clearTimeout(timeoutId);
+    cleanup();
   }
 }

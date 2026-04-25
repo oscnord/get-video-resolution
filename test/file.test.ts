@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { join } from "node:path";
 import { MediaParseError } from "../src/errors";
 import { parseAVI } from "../src/parsers/avi";
@@ -296,15 +296,15 @@ describe("Format detection edge cases", () => {
 });
 
 describe("MP4 parser error handling", () => {
-  test("throws when moov box is missing", () => {
-    // Valid ftyp box but no moov
+  test("throws MediaParseError when moov box is missing", () => {
     const ftyp = new Uint8Array(16);
     ftyp.set([0x00, 0x00, 0x00, 0x10]); // size = 16
     ftyp.set([0x66, 0x74, 0x79, 0x70], 4); // "ftyp"
+    expect(() => parseMP4(ftyp)).toThrow(MediaParseError);
     expect(() => parseMP4(ftyp)).toThrow("No moov box found");
   });
 
-  test("throws when no video track exists", () => {
+  test("throws MediaParseError when no video track exists", () => {
     // Minimal moov with an audio-only trak (hdlr type = "soun")
     const data = new Uint8Array(80);
     let pos = 0;
@@ -333,18 +333,19 @@ describe("MP4 parser error handling", () => {
     data.set([0x00, 0x00, 0x00, 0x00], pos + 4); // pre_defined
     data.set([0x73, 0x6f, 0x75, 0x6e], pos + 8); // "soun" (audio)
 
+    expect(() => parseMP4(data)).toThrow(MediaParseError);
     expect(() => parseMP4(data)).toThrow("No video track found");
   });
 });
 
 describe("WebM parser error handling", () => {
-  test("throws for invalid EBML data", () => {
+  test("throws MediaParseError for invalid EBML data", () => {
     // EBML magic but corrupt after that
     const data = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x00]);
-    expect(() => parseWebM(data)).toThrow();
+    expect(() => parseWebM(data)).toThrow(MediaParseError);
   });
 
-  test("throws when no video track exists", () => {
+  test("throws MediaParseError when no video track exists", () => {
     // Valid EBML header + Segment but no Tracks
     const data = new Uint8Array(20);
     // EBML header: ID = 1A 45 DF A3, size = 0x83 (3 bytes of data)
@@ -354,27 +355,234 @@ describe("WebM parser error handling", () => {
       [0x18, 0x53, 0x80, 0x67, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
       8,
     );
+    expect(() => parseWebM(data)).toThrow(MediaParseError);
     expect(() => parseWebM(data)).toThrow("No video track found");
   });
 });
 
 describe("AVI parser error handling", () => {
-  test("throws for data too small", () => {
+  test("throws MediaParseError for data too small", () => {
     const tiny = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
+    expect(() => parseAVI(tiny)).toThrow(MediaParseError);
     expect(() => parseAVI(tiny)).toThrow("File too small");
   });
 
-  test("throws for invalid RIFF header", () => {
+  test("throws MediaParseError for invalid RIFF header", () => {
     const data = new Uint8Array(12);
     data.set([0x00, 0x00, 0x00, 0x00]); // not RIFF
+    expect(() => parseAVI(data)).toThrow(MediaParseError);
     expect(() => parseAVI(data)).toThrow("Not a valid AVI file");
   });
 
-  test("throws when hdrl list is missing", () => {
+  test("throws MediaParseError when hdrl list is missing", () => {
     const data = new Uint8Array(20);
     data.set([0x52, 0x49, 0x46, 0x46]); // RIFF
     data.set([0x0c, 0x00, 0x00, 0x00], 4); // size = 12
     data.set([0x41, 0x56, 0x49, 0x20], 8); // AVI
+    expect(() => parseAVI(data)).toThrow(MediaParseError);
     expect(() => parseAVI(data)).toThrow("No hdrl list found");
+  });
+});
+
+describe("Range requests for URLs", () => {
+  test("sends Range header for URL sources", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const mp4Data = await readFile(fixtures("h264_1080p.mp4"));
+    const mockFetch = mock((_url: string, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      if (headers?.Range) {
+        return Promise.resolve(
+          new Response(mp4Data, {
+            status: 206,
+            headers: {
+              "Content-Range": `bytes 0-${mp4Data.length - 1}/${mp4Data.length}`,
+            },
+          }),
+        );
+      }
+      return Promise.resolve(new Response(mp4Data, { status: 200 }));
+    });
+    const result = await parseFile("https://example.com/video.mp4", {
+      fetch: mockFetch,
+    });
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to full download when Range not supported", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const mp4Data = await readFile(fixtures("h264_1080p.mp4"));
+    const mockFetch = mock(() =>
+      Promise.resolve(new Response(mp4Data, { status: 200 })),
+    );
+    const result = await parseFile("https://example.com/video.mp4", {
+      fetch: mockFetch,
+    });
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+  });
+
+  test("fetches tail for MP4 with moov at end", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const mp4Data = await readFile(fixtures("h264_1080p.mp4"));
+    let callCount = 0;
+    const mockFetch = mock((_url: string, init?: RequestInit) => {
+      callCount++;
+      const headers = init?.headers as Record<string, string> | undefined;
+      if (callCount === 1 && headers?.Range) {
+        // First request: return ftyp-only data (no moov) to simulate moov-at-end
+        const ftyp = new Uint8Array(16);
+        ftyp.set([0x00, 0x00, 0x00, 0x10]); // size = 16
+        ftyp.set([0x66, 0x74, 0x79, 0x70], 4); // "ftyp"
+        return Promise.resolve(
+          new Response(ftyp, {
+            status: 206,
+            headers: {
+              "Content-Range": `bytes 0-15/${mp4Data.length + 16}`,
+            },
+          }),
+        );
+      }
+      // Second request (tail): return full MP4 data
+      return Promise.resolve(new Response(mp4Data, { status: 206 }));
+    });
+    const result = await parseFile("https://example.com/video.mp4", {
+      fetch: mockFetch,
+    });
+    expect(result.width).toBe(1920);
+    expect(callCount).toBe(2);
+  });
+});
+
+describe("Rotation", () => {
+  test("returns 0 rotation for non-rotated MP4", async () => {
+    const result = await parseFile(fixtures("h264_1080p.mp4"), {});
+    expect(result.rotation).toBe(0);
+  });
+
+  test.each([
+    { degrees: 90, a: 0, b: 0x00010000 },
+    { degrees: 180, a: -0x00010000, b: 0 },
+    { degrees: 270, a: 0, b: -0x00010000 },
+  ])("detects $degrees-degree rotation from tkhd", ({ degrees, a, b }) => {
+    const mp4 = buildMP4WithRotation(a, b);
+    const result = parseMP4(mp4);
+    expect(result.rotation).toBe(degrees);
+  });
+});
+
+function buildMP4WithRotation(a: number, b: number): Uint8Array {
+  const data = new Uint8Array(256);
+  let pos = 0;
+
+  const moovStart = pos;
+  writeU32(data, pos, 0);
+  writeFourCC(data, pos + 4, "moov");
+  pos += 8;
+
+  const trakStart = pos;
+  writeU32(data, pos, 0);
+  writeFourCC(data, pos + 4, "trak");
+  pos += 8;
+
+  const tkhdStart = pos;
+  writeU32(data, pos, 96);
+  writeFourCC(data, pos + 4, "tkhd");
+  pos += 8;
+  data[pos] = 0;
+  pos += 40;
+  writeI32(data, pos, a);
+  writeI32(data, pos + 4, b);
+  pos = tkhdStart + 96;
+
+  const mdiaStart = pos;
+  writeU32(data, pos, 0);
+  writeFourCC(data, pos + 4, "mdia");
+  pos += 8;
+
+  writeU32(data, pos, 21);
+  writeFourCC(data, pos + 4, "hdlr");
+  pos += 12;
+  pos += 4;
+  writeFourCC(data, pos, "vide");
+  pos = mdiaStart + 8 + 21;
+
+  const minfStart = pos;
+  writeU32(data, pos, 0);
+  writeFourCC(data, pos + 4, "minf");
+  pos += 8;
+
+  const stblStart = pos;
+  writeU32(data, pos, 0);
+  writeFourCC(data, pos + 4, "stbl");
+  pos += 8;
+
+  const stsdStart = pos;
+  writeU32(data, pos, 8 + 8 + 86);
+  writeFourCC(data, pos + 4, "stsd");
+  pos += 8;
+  writeU32(data, pos + 4, 1);
+  pos += 8;
+  const entryStart = pos;
+  writeU32(data, pos, 86);
+  writeFourCC(data, pos + 4, "avc1");
+  data[entryStart + 24] = 0x07;
+  data[entryStart + 25] = 0x80;
+  data[entryStart + 26] = 0x04;
+  data[entryStart + 27] = 0x38;
+  pos = stsdStart + 8 + 8 + 86;
+
+  writeU32(data, stblStart, pos - stblStart);
+  writeU32(data, minfStart, pos - minfStart);
+  writeU32(data, mdiaStart, pos - mdiaStart);
+  writeU32(data, trakStart, pos - trakStart);
+  writeU32(data, moovStart, pos - moovStart);
+
+  return data.subarray(0, pos);
+}
+
+function writeU32(data: Uint8Array, offset: number, value: number) {
+  data[offset] = (value >>> 24) & 0xff;
+  data[offset + 1] = (value >>> 16) & 0xff;
+  data[offset + 2] = (value >>> 8) & 0xff;
+  data[offset + 3] = value & 0xff;
+}
+
+function writeI32(data: Uint8Array, offset: number, value: number) {
+  const v = value | 0;
+  data[offset] = (v >>> 24) & 0xff;
+  data[offset + 1] = (v >>> 16) & 0xff;
+  data[offset + 2] = (v >>> 8) & 0xff;
+  data[offset + 3] = v & 0xff;
+}
+
+function writeFourCC(data: Uint8Array, offset: number, str: string) {
+  for (let i = 0; i < 4; i++) data[offset + i] = str.charCodeAt(i);
+}
+
+describe("Timeout handling", () => {
+  test("respects timeout for URL fetches", async () => {
+    const slowFetch = mock(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const timer = setTimeout(
+            () => resolve(new Response(new ArrayBuffer(0))),
+            5000,
+          );
+          init?.signal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(
+              new DOMException("The operation was aborted.", "AbortError"),
+            );
+          });
+        }),
+    );
+    await expect(
+      parseFile("https://example.com/slow.mp4", {
+        fetch: slowFetch,
+        timeout: 50,
+      }),
+    ).rejects.toThrow();
   });
 });

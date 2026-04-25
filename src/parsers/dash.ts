@@ -43,15 +43,17 @@ function extractRepresentations(
   content: string,
   duration: number | undefined,
 ): VideoInfo[] {
-  const regex =
-    /<Representation[^>]*?\bwidth=["'](\d+)["'][^>]*?\bheight=["'](\d+)["'][^>]*?\/?>/gi;
+  const regex = /<Representation\b[^>]*?\/?>/gi;
   const representations: VideoInfo[] = [];
 
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
     const tag = match[0];
-    const width = parseInt(match[1], 10);
-    const height = parseInt(match[2], 10);
+    const wMatch = /\bwidth=["'](\d+)["']/.exec(tag);
+    const hMatch = /\bheight=["'](\d+)["']/.exec(tag);
+    if (!wMatch || !hMatch) continue;
+    const width = parseInt(wMatch[1], 10);
+    const height = parseInt(hMatch[1], 10);
 
     const bwMatch = /bandwidth=["'](\d+)["']/.exec(tag);
     const bitrate = bwMatch ? parseInt(bwMatch[1], 10) : undefined;

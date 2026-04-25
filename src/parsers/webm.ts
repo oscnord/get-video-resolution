@@ -1,3 +1,4 @@
+import { MediaParseError } from "../errors";
 import type { ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
 
@@ -240,23 +241,23 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   // Validate EBML header
   const headerId = readElementID(data, pos);
   if (!headerId || headerId.value !== EBML_MAGIC) {
-    throw new Error("Not a valid EBML file");
+    throw new MediaParseError("Not a valid EBML file");
   }
   pos += headerId.length;
 
   const headerSize = readVINT(data, pos);
-  if (!headerSize) throw new Error("Invalid EBML header size");
+  if (!headerSize) throw new MediaParseError("Invalid EBML header size");
   pos += headerSize.length + headerSize.value;
 
   // Find Segment
   const segId = readElementID(data, pos);
   if (!segId || segId.value !== SEGMENT_ID) {
-    throw new Error("No Segment element found");
+    throw new MediaParseError("No Segment element found");
   }
   pos += segId.length;
 
   const segSize = readVINT(data, pos);
-  if (!segSize) throw new Error("Invalid Segment size");
+  if (!segSize) throw new MediaParseError("Invalid Segment size");
   pos += segSize.length;
 
   // EBML unknown size: all data bits set to 1. For any VINT length,
@@ -312,7 +313,7 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   }
 
   if (!videoTrack) {
-    throw new Error("No video track found in WebM/MKV file");
+    throw new MediaParseError("No video track found in WebM/MKV file");
   }
 
   const codec = videoTrack.codecId ? mapCodecId(videoTrack.codecId) : undefined;
