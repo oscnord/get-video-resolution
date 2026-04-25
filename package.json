@@ -1,7 +1,7 @@
 {
   "name": "@oscnord/get-video-resolution",
   "version": "2.1.1",
-  "description": "Get the dimensions (width and height) of a video. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, and DASH manifests.",
+  "description": "Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Zero dependencies, no ffmpeg.",
   "type": "module",
   "exports": {
     ".": {
@@ -36,13 +36,18 @@
   "keywords": [
     "video",
     "resolution",
+    "metadata",
+    "codec",
+    "audio-tracks",
     "hls",
     "dash",
     "mp4",
     "webm",
     "mkv",
     "avi",
-    "mov"
+    "mov",
+    "hdr",
+    "rotation"
   ],
   "homepage": "https://github.com/oscnord/get-video-resolution#readme",
   "dependencies": {},
