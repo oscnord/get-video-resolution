@@ -7,6 +7,8 @@ Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more fr
 
 Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources.
 
+Only reads file headers (not the full file), so it works efficiently on files of any size. For remote URLs, uses HTTP Range requests to fetch just the first 1MB.
+
 ## Install
 
 ```bash
