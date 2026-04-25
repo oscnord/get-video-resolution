@@ -21,7 +21,7 @@ export async function parseDash(
     throw new ManifestParseError("No resolution found in DASH manifest");
   }
 
-  const encrypted = detectEncryption(periodContent) || undefined;
+  const encrypted = detectEncryption(periodContent) ? true : undefined;
   const audioTracks = extractAudioAdaptationSets(periodContent);
   const subtitleTracks = extractSubtitleAdaptationSets(periodContent);
 

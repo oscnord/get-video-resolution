@@ -1,5 +1,5 @@
 import { MediaParseError } from "../errors";
-import type { AudioTrack as AudioTrackType, ParsedMetadata } from "../types";
+import type { AudioTrack, ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
 
 interface CodecInfo {
@@ -158,36 +158,34 @@ function getTrackHandler(data: Uint8Array, trak: Box): string | null {
 function parseMdhd(
   data: Uint8Array,
   box: Box,
-): { timescale: number; duration: number } | null {
+): { timescale: number; duration: number; language?: string } | null {
   const start = box.offset + box.headerSize;
   if (start >= data.length) return null;
 
   const version = data[start];
 
   if (version === 0) {
-    if (start + 20 > data.length) return null;
+    if (start + 22 > data.length) return null;
     return {
       timescale: readU32(data, start + 12),
       duration: readU32(data, start + 16),
+      language: decodePackedLanguage(data, start + 20),
     };
   }
 
-  if (start + 28 > data.length) return null;
+  if (start + 34 > data.length) return null;
   return {
     timescale: readU32(data, start + 20),
     duration: readU64(data, start + 24),
+    language: decodePackedLanguage(data, start + 32),
   };
 }
 
-function parseMdhdLanguage(data: Uint8Array, box: Box): string | undefined {
-  const start = box.offset + box.headerSize;
-  if (start >= data.length) return undefined;
-
-  const version = data[start];
-  const langOffset = start + (version === 0 ? 20 : 32);
-  if (langOffset + 2 > data.length) return undefined;
-
-  const packed = readU16(data, langOffset);
+function decodePackedLanguage(
+  data: Uint8Array,
+  offset: number,
+): string | undefined {
+  const packed = readU16(data, offset);
   if (packed === 0 || packed === 0x7fff) return undefined;
 
   const c1 = ((packed >> 10) & 0x1f) + 0x60;
@@ -411,34 +409,21 @@ function parseAudioSampleEntry(
   return { codec: entryBox.type, channels };
 }
 
-function parseAudioTracks(
-  data: Uint8Array,
-  moovStart: number,
-  moovEnd: number,
-): AudioTrackType[] {
-  const tracks: AudioTrackType[] = [];
+function parseAudioTrak(data: Uint8Array, trak: Box): AudioTrack {
+  const trakStart = trak.offset + trak.headerSize;
+  const trakEnd = trak.offset + trak.size;
 
-  for (const box of iterateBoxes(data, moovStart, moovEnd)) {
-    if (box.type !== "trak") continue;
-    if (getTrackHandler(data, box) !== "soun") continue;
+  const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
+  const mdhd = findBoxRecursive(data, trakStart, trakEnd, "mdhd");
 
-    const trakStart = box.offset + box.headerSize;
-    const trakEnd = box.offset + box.size;
+  const mdhdInfo = mdhd ? parseMdhd(data, mdhd) : null;
+  const audio = stsd ? parseAudioSampleEntry(data, stsd) : null;
 
-    const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
-    const mdhd = findBoxRecursive(data, trakStart, trakEnd, "mdhd");
-
-    const language = mdhd ? parseMdhdLanguage(data, mdhd) : undefined;
-    const audio = stsd ? parseAudioSampleEntry(data, stsd) : null;
-
-    tracks.push({
-      codec: audio?.codec,
-      language,
-      channels: audio?.channels,
-    });
-  }
-
-  return tracks;
+  return {
+    codec: audio?.codec,
+    language: mdhdInfo?.language,
+    channels: audio?.channels,
+  };
 }
 
 export function parseMP4(data: Uint8Array): ParsedMetadata {
@@ -450,23 +435,21 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const moovStart = moov.offset + moov.headerSize;
   const moovEnd = moov.offset + moov.size;
 
-  // Find the first video track
   let videoTrak: Box | undefined;
+  const audioTraks: Box[] = [];
   for (const box of iterateBoxes(data, moovStart, moovEnd)) {
-    if (box.type === "trak" && getTrackHandler(data, box) === "vide") {
-      videoTrak = box;
-      break;
-    }
+    if (box.type !== "trak") continue;
+    const handler = getTrackHandler(data, box);
+    if (handler === "vide" && !videoTrak) videoTrak = box;
+    else if (handler === "soun") audioTraks.push(box);
   }
   if (!videoTrak) {
     throw new MediaParseError("No video track found in MP4 file");
   }
 
-  // We need to work with absolute offsets, so slice relative paths carefully
   const trakStart = videoTrak.offset + videoTrak.headerSize;
   const trakEnd = videoTrak.offset + videoTrak.size;
 
-  // Duration & timescale from mdhd
   const mdhd = findBoxRecursive(data, trakStart, trakEnd, "mdhd");
   const timing = mdhd ? parseMdhd(data, mdhd) : null;
   const duration =
@@ -474,7 +457,6 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
       ? timing.duration / timing.timescale
       : undefined;
 
-  // Dimensions & codec from stsd
   const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
   if (!stsd) {
     throw new MediaParseError(
@@ -487,7 +469,6 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
     throw new MediaParseError("Could not read video dimensions from stsd");
   }
 
-  // FPS from stts
   const stts = findBoxRecursive(data, trakStart, trakEnd, "stts");
   const framerate =
     stts && timing ? parseStts(data, stts, timing.timescale) : undefined;
@@ -496,14 +477,14 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const codec = codecInfo.codec === "unknown" ? undefined : codecInfo.codec;
   const bitDepth = codecInfo.bitDepth;
 
-  // HDR: try colr box first, fall back to codec string pattern
+  // colr box HDR takes priority over codec string pattern
   const colrHdr = parseColr(data, stsd);
   const hdr = colrHdr ?? isHdrCodec(codec);
 
   const tkhd = findBox(data, trakStart, trakEnd, "tkhd");
   const rotation = tkhd ? parseTkhdRotation(data, tkhd) : undefined;
 
-  const audioTracks = parseAudioTracks(data, moovStart, moovEnd);
+  const audioTracks = audioTraks.map((t) => parseAudioTrak(data, t));
 
   return {
     width: dims.width,

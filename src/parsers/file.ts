@@ -55,7 +55,7 @@ const PARSERS = {
 
 function parseData(data: Uint8Array, format?: Format): VideoInfo {
   const fmt = format ?? detectFormat(data);
-  const parser = PARSERS[fmt as keyof typeof PARSERS];
+  const parser = fmt !== "unknown" ? PARSERS[fmt] : undefined;
   if (!parser) {
     throw new MediaParseError(
       "Unrecognized file format. Supported formats: MP4, MOV, WebM, MKV, AVI.",

@@ -16,27 +16,23 @@ export async function parseHls(
     throw new ManifestParseError("No RESOLUTION found in HLS manifest");
   }
 
-  const encrypted = detectEncryption(content) || undefined;
+  const encrypted = detectEncryption(content) ? true : undefined;
   let audioTracks = extractAudioTracks(content);
   const subtitleTracks = extractSubtitleTracks(content);
 
+  const audioCodec = rawVariants
+    .map((v) => extractAudioCodec(v.codecs))
+    .find(Boolean);
+
   if (audioTracks.length === 0) {
-    const firstAudioCodec = rawVariants
-      .map((v) => extractAudioCodec(v.codecs))
-      .find(Boolean);
-    if (firstAudioCodec) {
-      audioTracks = [{ codec: firstAudioCodec }];
-    }
-  } else {
-    const audioCodec = rawVariants
-      .map((v) => extractAudioCodec(v.codecs))
-      .find(Boolean);
     if (audioCodec) {
-      audioTracks = audioTracks.map((t) => ({
-        ...t,
-        codec: t.codec ?? audioCodec,
-      }));
+      audioTracks = [{ codec: audioCodec }];
     }
+  } else if (audioCodec) {
+    audioTracks = audioTracks.map((t) => ({
+      ...t,
+      codec: t.codec ?? audioCodec,
+    }));
   }
 
   return rawVariants.map((raw) => {
