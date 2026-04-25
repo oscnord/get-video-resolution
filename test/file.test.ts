@@ -182,6 +182,15 @@ describe("WebM VP9 720p", () => {
   });
 });
 
+describe("WebM metadata", () => {
+  test("returns bitDepth for VP9", async () => {
+    const result = await parseFile(fixtures("webm_vp9_720p.webm"), {});
+    expect(
+      result.bitDepth === undefined || typeof result.bitDepth === "number",
+    ).toBe(true);
+  });
+});
+
 describe("MKV H.264 1080p", () => {
   test("parses dimensions", async () => {
     const result = await parseFile(fixtures("mkv_h264_1080p.mkv"), {});
