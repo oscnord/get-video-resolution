@@ -3,6 +3,7 @@ import { parseDash } from "./parsers/dash";
 import { parseFile } from "./parsers/file";
 import { parseHls } from "./parsers/hls";
 import type { GetVideoResolutionOptions, VideoInfo } from "./types";
+import { buildSignal } from "./utils/fetch";
 
 /**
  * Get the resolution of a video from a local file path, URL, or binary data.
@@ -95,12 +96,10 @@ async function sniffContentType(
   options: GetVideoResolutionOptions,
 ): Promise<InputType> {
   const fetchFn = options.fetch ?? globalThis.fetch;
+  const { signal, cleanup } = buildSignal(options);
 
   try {
-    const response = await fetchFn(url, {
-      method: "HEAD",
-      signal: options.signal,
-    });
+    const response = await fetchFn(url, { method: "HEAD", signal });
     const contentType =
       response.headers.get("content-type")?.toLowerCase() ?? "";
 
@@ -115,6 +114,8 @@ async function sniffContentType(
     }
   } catch {
     // Sniffing failed -- fall through to file parser
+  } finally {
+    cleanup();
   }
 
   return "file";

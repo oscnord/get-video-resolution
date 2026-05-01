@@ -97,6 +97,31 @@ describe("regression: ReadableStream input is capped", () => {
   });
 });
 
+describe("regression: sniff HEAD honors options.timeout", () => {
+  test("HEAD request aborts when timeout fires", async () => {
+    const { getVideoResolution } = await import("../src/resolver");
+    let aborted = false;
+    const fetchMock = mock((_url: string, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        });
+        // never resolve naturally
+      });
+    });
+    await expect(
+      getVideoResolution("https://example.com/stream-no-ext", {
+        sniff: true,
+        timeout: 50,
+        fetch: fetchMock,
+      }),
+    ).rejects.toThrow();
+    expect(aborted).toBe(true);
+  });
+});
+
 describe("regression: loadManifest size cap", () => {
   test("rejects when content-length declares > 10 MB", async () => {
     const fetchMock = mock(() =>

@@ -20,6 +20,16 @@
   the head and tail of large streams are needed for parsing.
 - HLS/DASH manifest fetching enforces a 10 MB cap on response body size and
   honours `Content-Length` upfront, throwing `NetworkError` on oversize.
+- Sniff (`sniff: true`) HEAD request now honours `options.timeout`. Previously
+  the timeout was bypassed for the content-type probe.
+
+### DX
+
+- `Resolution`, `VideoInfo`, `AudioTrack`, `SubtitleTrack`,
+  `GetVideoResolutionOptions`, and every error class now carry JSDoc that
+  surfaces in IDE hover tooltips.
+- `VideoInfo extends Resolution` so the previously-unused `Resolution` export
+  is now part of the type chain.
 
 ### Refactor
 
