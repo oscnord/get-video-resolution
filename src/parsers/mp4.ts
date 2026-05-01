@@ -7,7 +7,7 @@ import {
   readU32BE as readU32,
   readU64BE as readU64,
 } from "../utils/binary";
-import { isHdrCodec } from "../utils/hdr";
+import { isDefiniteHdrCodec } from "../utils/hdr";
 
 interface CodecInfo {
   codec: string;
@@ -379,12 +379,25 @@ function parseAudioSampleEntry(
   const entryBox = readBoxHeader(data, entryStart);
   if (!entryBox) return null;
 
-  // Audio sample entry: 8 header + 6 reserved + 2 data_ref_index + 8 reserved + 2 channelcount
+  // Audio sample entry layout:
+  //   +0..7   box header (size + fourcc)
+  //   +8..13  6 reserved
+  //   +14..15 data_reference_index
+  //   +16..17 version (QuickTime sound sample description; 0 in ISO BMFF)
+  //
+  // For version 0/1 the channelcount lives at body+16 (= entryStart+24) as
+  // a 16-bit BE int. For QuickTime v2 that field is a sentinel (always 3),
+  // and the real channel count is a 32-bit BE int at body+40 (= entryStart+48).
+  if (entryStart + 18 > data.length) return null;
+  const version = readU16(data, entryStart + 16);
+
+  if (version === 2) {
+    if (entryStart + 52 > data.length) return null;
+    return { codec: entryBox.type, channels: readU32(data, entryStart + 48) };
+  }
+
   if (entryStart + 26 > data.length) return null;
-
-  const channels = readU16(data, entryStart + 24);
-
-  return { codec: entryBox.type, channels };
+  return { codec: entryBox.type, channels: readU16(data, entryStart + 24) };
 }
 
 function parseAudioTrak(data: Uint8Array, trak: Box): AudioTrack {
@@ -486,9 +499,12 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const codec = codecInfo.codec === "unknown" ? undefined : codecInfo.codec;
   const bitDepth = codecInfo.bitDepth;
 
-  // colr box HDR takes priority over codec string pattern
+  // colr box is the authoritative HDR signal (PQ/HLG transfer characteristics).
+  // When colr is missing, only fall back to codec strings that unambiguously
+  // indicate HDR (Dolby Vision). Probable-but-ambiguous patterns like Main 10
+  // are NOT used here, so SDR Main 10 sources don't get falsely flagged.
   const colrHdr = parseColr(data, stsd);
-  const hdr = colrHdr ?? isHdrCodec(codec);
+  const hdr = colrHdr ?? isDefiniteHdrCodec(codec);
 
   const tkhd = findBox(data, trakStart, trakEnd, "tkhd");
   const rotation = tkhd ? parseTkhdRotation(data, tkhd) : undefined;
