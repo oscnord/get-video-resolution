@@ -89,69 +89,63 @@ async function parseFromUrl(
   options: FetchOptions,
 ): Promise<VideoInfo> {
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const { signal, cleanup } = buildSignal(options);
+  const { signal } = buildSignal(options);
 
-  try {
-    const probeResponse = await fetchRange(
-      url,
-      fetchFn,
-      signal,
-      `bytes=0-${PROBE_SIZE - 1}`,
-    );
-    const probeData = new Uint8Array(await probeResponse.arrayBuffer());
+  const probeResponse = await fetchRange(
+    url,
+    fetchFn,
+    signal,
+    `bytes=0-${PROBE_SIZE - 1}`,
+  );
+  const probeData = new Uint8Array(await probeResponse.arrayBuffer());
 
-    // Server ignored Range header — we have the full file
-    if (probeResponse.status !== 206) return parseData(probeData);
+  // Server ignored Range header — we have the full file
+  if (probeResponse.status !== 206) return parseData(probeData);
 
-    const format = detectFormat(probeData);
+  const format = detectFormat(probeData);
 
-    // WebM/MKV/AVI: headers are always at the start
-    if (format === "webm" || format === "avi")
+  // WebM/MKV/AVI: headers are always at the start
+  if (format === "webm" || format === "avi")
+    return parseData(probeData, format);
+
+  // MP4: moov might be at the end of the file
+  if (format === "mp4") {
+    try {
       return parseData(probeData, format);
-
-    // MP4: moov might be at the end of the file
-    if (format === "mp4") {
-      try {
-        return parseData(probeData, format);
-      } catch (error) {
-        if (
-          !(error instanceof MediaParseError) ||
-          !error.message.includes("No moov box")
-        ) {
-          throw error;
-        }
-        const contentRange = probeResponse.headers.get("content-range");
-        const totalMatch = contentRange?.match(/\/(\d+)/);
-        if (!totalMatch) throw error;
-
-        const totalSize = parseInt(totalMatch[1], 10);
-        const start = Math.max(0, totalSize - PROBE_SIZE);
-        const tailResponse = await fetchRange(
-          url,
-          fetchFn,
-          signal,
-          `bytes=${start}-${totalSize - 1}`,
-        );
-        const tailData = new Uint8Array(await tailResponse.arrayBuffer());
-        const moovOffset = findMoovInTail(tailData);
-        if (moovOffset >= 0) {
-          return parseData(tailData.subarray(moovOffset), "mp4");
-        }
-        return parseData(tailData, "mp4");
+    } catch (error) {
+      if (
+        !(error instanceof MediaParseError) ||
+        !error.message.includes("No moov box")
+      ) {
+        throw error;
       }
-    }
+      const contentRange = probeResponse.headers.get("content-range");
+      const totalMatch = contentRange?.match(/\/(\d+)/);
+      if (!totalMatch) throw error;
 
-    // Unknown format with partial data — fall back to full download
-    const fullResponse = await fetchFn(url, { signal });
-    if (!fullResponse.ok) {
-      throw new MediaParseError(
-        `Failed to fetch ${url}: ${fullResponse.status}`,
+      const totalSize = parseInt(totalMatch[1], 10);
+      const start = Math.max(0, totalSize - PROBE_SIZE);
+      const tailResponse = await fetchRange(
+        url,
+        fetchFn,
+        signal,
+        `bytes=${start}-${totalSize - 1}`,
       );
+      const tailData = new Uint8Array(await tailResponse.arrayBuffer());
+      const moovOffset = findMoovInTail(tailData);
+      if (moovOffset >= 0) {
+        return parseData(tailData.subarray(moovOffset), "mp4");
+      }
+      return parseData(tailData, "mp4");
     }
-    return parseData(new Uint8Array(await fullResponse.arrayBuffer()));
-  } finally {
-    cleanup();
   }
+
+  // Unknown format with partial data — fall back to full download
+  const fullResponse = await fetchFn(url, { signal });
+  if (!fullResponse.ok) {
+    throw new MediaParseError(`Failed to fetch ${url}: ${fullResponse.status}`);
+  }
+  return parseData(new Uint8Array(await fullResponse.arrayBuffer()));
 }
 
 function findMoovInProbe(

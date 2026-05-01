@@ -12,14 +12,13 @@ const MANIFEST_SIZE_CAP = 10 * 1024 * 1024;
 
 export function buildSignal(options: FetchOptions): {
   signal: AbortSignal | undefined;
-  cleanup: () => void;
 } {
-  if (options.signal) return { signal: options.signal, cleanup: () => {} };
-  if (!options.timeout) return { signal: undefined, cleanup: () => {} };
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), options.timeout);
-  return { signal: controller.signal, cleanup: () => clearTimeout(timeoutId) };
+  const signals: AbortSignal[] = [];
+  if (options.signal) signals.push(options.signal);
+  if (options.timeout) signals.push(AbortSignal.timeout(options.timeout));
+  if (signals.length === 0) return { signal: undefined };
+  if (signals.length === 1) return { signal: signals[0] };
+  return { signal: AbortSignal.any(signals) };
 }
 
 export async function loadManifest(
@@ -38,7 +37,7 @@ async function fetchRemote(
   options: FetchOptions,
 ): Promise<string> {
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const { signal, cleanup } = buildSignal(options);
+  const { signal } = buildSignal(options);
 
   try {
     const response = await fetchFn(url, { signal });
@@ -66,8 +65,6 @@ async function fetchRemote(
         cause: error,
       },
     );
-  } finally {
-    cleanup();
   }
 }
 

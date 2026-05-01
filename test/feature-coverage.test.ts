@@ -164,6 +164,37 @@ describe("feature: HEVC bitDepth from hvcC", () => {
   });
 });
 
+describe("feature: fragmented MP4 (moov followed by moof)", () => {
+  test("parseMP4 ignores moof boxes that follow moov", () => {
+    const moov = buildMinimalHevcMp4(0x00); // 8-bit Main HEVC
+    // Append a synthetic moof box: 16 bytes, type "moof", arbitrary payload.
+    const moof = new Uint8Array([
+      0,
+      0,
+      0,
+      16,
+      0x6d,
+      0x6f,
+      0x6f,
+      0x66, // "moof"
+      0,
+      0,
+      0,
+      8,
+      0x6d,
+      0x66,
+      0x68,
+      0x64, // "mfhd" sub-box
+    ]);
+    const fragmented = new Uint8Array(moov.length + moof.length);
+    fragmented.set(moov, 0);
+    fragmented.set(moof, moov.length);
+    const info = parseMP4(fragmented);
+    expect(info.width).toBe(1920);
+    expect(info.height).toBe(1080);
+  });
+});
+
 describe("feature: WebM subtitle extraction", () => {
   test("Matroska subtitle track (TrackType 0x11) with S_TEXT/UTF8 maps to 'srt'", () => {
     const data = buildWebmWithSubtitle();

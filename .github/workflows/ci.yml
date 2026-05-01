@@ -26,6 +26,39 @@ jobs:
       - run: bun test --coverage
       - run: bun run build
 
+  types-resolution:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run build
+      - name: Verify dual-package types resolve
+        run: bunx --bun @arethetypeswrong/cli@latest --pack
+
+  browser-bundle:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - name: Bundle for browser target
+        run: |
+          bun build src/index.ts \
+            --target=browser \
+            --outfile=/tmp/browser.js
+          test -s /tmp/browser.js
+          # The browser bundle should not statically reference Node built-ins.
+          # node:fs/promises is dynamically imported only on local-path inputs,
+          # so a static "node:fs" hit at the top level would mean accidental
+          # Node-only code reached the public surface.
+          if grep -q 'require("node:fs' /tmp/browser.js; then
+            echo "Browser bundle statically imports node:fs"
+            exit 1
+          fi
+
   node-smoke:
     runs-on: ubuntu-latest
     needs: test

@@ -96,7 +96,7 @@ async function sniffContentType(
   options: GetVideoResolutionOptions,
 ): Promise<InputType> {
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const { signal, cleanup } = buildSignal(options);
+  const { signal } = buildSignal(options);
 
   try {
     const response = await fetchFn(url, { method: "HEAD", signal });
@@ -126,8 +126,6 @@ async function sniffContentType(
     }
   } catch {
     // Sniffing failed -- fall through to file parser
-  } finally {
-    cleanup();
   }
 
   return "file";
