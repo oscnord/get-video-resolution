@@ -7,6 +7,13 @@ import {
 } from "./errors";
 import { getVideoResolution } from "./resolver";
 
+export type {
+  AudioTrack,
+  GetVideoResolutionOptions,
+  Resolution,
+  SubtitleTrack,
+  VideoInfo,
+} from "./types";
 export {
   getVideoResolution,
   ManifestParseError,
@@ -15,10 +22,3 @@ export {
   UnsupportedSourceError,
   VideoResolutionError,
 };
-export type {
-  AudioTrack,
-  GetVideoResolutionOptions,
-  Resolution,
-  SubtitleTrack,
-  VideoInfo,
-} from "./types";
