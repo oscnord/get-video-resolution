@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.2.2
+
+### Features
+
+- **Subtitle extraction for MP4 / WebM / MKV.** Previously HLS/DASH-only;
+  callers now get `subtitleTracks` populated for file inputs as well.
+- **Audio track extraction for AVI.** Reads each `auds` strl LIST and decodes
+  the WAVEFORMATEX `formatTag` to a codec name plus channel count.
+- **Magic-byte fallback for `sniff: true`.** When HEAD returns a generic
+  `Content-Type` (octet-stream / text/plain / text/xml / empty), the library
+  issues a `Range: bytes=0-2047` GET and inspects the first bytes for
+  `#EXTM3U`, `<MPD`, or `<?xml` to detect HLS/DASH.
+- **HEVC `bitDepth` now read from `hvcC`.** Previously a heuristic from
+  `profileIdc`. Now reads `bit_depth_luma_minus8` per ISO/IEC 14496-15, with
+  the heuristic kept as a fallback only when the box is truncated.
+- **Structured error context.** `MediaParseError`, `ManifestParseError`, and
+  `NetworkError` now carry an optional `context` property
+  (`{ format?, source?, byteOffset?, status? }`) so callers can branch on the
+  failing component without parsing message strings.
+
+### Robustness
+
+- **`pickVariants` is deterministic.** On equal area, the variant with higher
+  bitrate wins (`pick: "highest"`) or lower bitrate wins (`pick: "lowest"`).
+  Previously a strict `>` comparison let later variants win on tie.
+- **README docs `subtitleTracks` for file inputs** and includes an explicit
+  `ReadableStream` usage example.
+
+### Tests
+
+- 20 new tests across feature coverage (subtitle/audio extraction, HEVC bit
+  depth, magic-byte sniff, deterministic tie-break) and gap coverage —
+  pinning that every network code path honours `options.timeout`, that custom
+  `fetch` is used for every request (HLS GET, file Range, sniff HEAD, magic
+  Range probe), that built `dist/` bundles contain real code (a regression
+  test against last release's silent Bun-bundler issue).
+
 ## 2.2.1
 
 ### Robustness

@@ -25,7 +25,9 @@ export async function parseDash(
   const representations = extractRepresentations(periodContent, duration);
 
   if (representations.length === 0) {
-    throw new ManifestParseError("No resolution found in DASH manifest");
+    throw new ManifestParseError("No resolution found in DASH manifest", {
+      context: { format: "dash", source },
+    });
   }
 
   const encrypted = detectEncryption(periodContent) ? true : undefined;

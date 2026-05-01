@@ -33,7 +33,7 @@ export interface VideoInfo extends Resolution {
   encrypted?: boolean;
   /** Audio tracks discovered in the source. */
   audioTracks?: AudioTrack[];
-  /** Subtitle tracks discovered in the manifest (HLS/DASH only). */
+  /** Subtitle tracks discovered in the source. */
   subtitleTracks?: SubtitleTrack[];
 }
 
@@ -48,6 +48,7 @@ export interface ParsedMetadata {
   rotation?: number;
   bitDepth?: number;
   audioTracks?: AudioTrack[];
+  subtitleTracks?: SubtitleTrack[];
 }
 
 /** A single audio track. */

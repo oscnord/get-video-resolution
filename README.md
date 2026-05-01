@@ -54,7 +54,7 @@ const info = await getVideoResolution("/path/to/video.mp4");
 //   audioTracks: [
 //     { codec: "mp4a.40.2", language: "en", channels: 2 }
 //   ],
-//   subtitleTracks: undefined  // available for HLS/DASH
+//   subtitleTracks: undefined  // populated when present (MP4/WebM/MKV/HLS/DASH)
 // }
 ```
 
@@ -128,15 +128,26 @@ const info = await getVideoResolution("https://example.com/video.mp4", {
 });
 ```
 
-### Buffer input
+### Buffer / Blob / ReadableStream input
 
-Pass a `Buffer`, `Blob`, or `ReadableStream` directly:
+Pass binary data directly:
 
 ```typescript
 import { readFile } from "node:fs/promises";
 
+// Buffer
 const buffer = await readFile("/path/to/video.mp4");
 const info = await getVideoResolution(buffer);
+
+// Blob (browser, or Node's File API)
+const blob = new Blob([buffer], { type: "video/mp4" });
+const fromBlob = await getVideoResolution(blob);
+
+// ReadableStream — e.g. from a fetch response or Node fs stream.
+// The library reads only the head/tail it needs (capped at 2 MB) and
+// cancels the rest, so streaming a multi-GB file is safe.
+const res = await fetch("https://example.com/big-video.mp4");
+const fromStream = await getVideoResolution(res.body!);
 ```
 
 ## API
@@ -173,7 +184,7 @@ interface VideoInfo {
   bitDepth?: number;      // 8, 10, or 12
   encrypted?: boolean;    // DRM detected (HLS/DASH only)
   audioTracks?: AudioTrack[];
-  subtitleTracks?: SubtitleTrack[];  // HLS/DASH only
+  subtitleTracks?: SubtitleTrack[];
 }
 
 interface AudioTrack {

@@ -1,5 +1,5 @@
 import { MediaParseError } from "../errors";
-import type { AudioTrack, ParsedMetadata } from "../types";
+import type { AudioTrack, ParsedMetadata, SubtitleTrack } from "../types";
 import {
   readFourCC,
   readI32BE as readI32,
@@ -295,10 +295,15 @@ function buildHevcCodec(data: Uint8Array, box: Box): CodecInfo {
     codec += `.${b.toString(16).toUpperCase()}`;
   }
 
-  // profileIdc 1 = Main (8-bit), 2 = Main 10 (10-bit). Profiles 3+ (Range
-  // Extensions etc.) are best-effort and may carry a different bit depth via
-  // constraint flags, but this covers the common case correctly.
-  const bitDepth = profileIdc === 2 ? 10 : 8;
+  // hvcC layout: bit_depth_luma_minus8 lives in the lower 3 bits of byte 17
+  // (bodyStart-relative) per ISO/IEC 14496-15. Fall back to profileIdc when
+  // the box is too short to carry the field.
+  let bitDepth: number;
+  if (bodyStart + 18 <= data.length) {
+    bitDepth = (data[bodyStart + 17] & 0x07) + 8;
+  } else {
+    bitDepth = profileIdc === 2 ? 10 : 8;
+  }
 
   return { codec, bitDepth };
 }
@@ -399,10 +404,33 @@ function parseAudioTrak(data: Uint8Array, trak: Box): AudioTrack {
   };
 }
 
+function parseSubtitleEntryCodec(
+  data: Uint8Array,
+  stsd: Box,
+): string | undefined {
+  const entryStart = stsd.offset + stsd.headerSize + 8;
+  const entryBox = readBoxHeader(data, entryStart);
+  return entryBox?.type;
+}
+
+function parseSubtitleTrak(data: Uint8Array, trak: Box): SubtitleTrack {
+  const trakStart = trak.offset + trak.headerSize;
+  const trakEnd = trak.offset + trak.size;
+  const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
+  const mdhd = findBoxRecursive(data, trakStart, trakEnd, "mdhd");
+  const mdhdInfo = mdhd ? parseMdhd(data, mdhd) : null;
+  return {
+    codec: stsd ? parseSubtitleEntryCodec(data, stsd) : undefined,
+    language: mdhdInfo?.language,
+  };
+}
+
 export function parseMP4(data: Uint8Array): ParsedMetadata {
   const moov = findBox(data, 0, data.length, "moov");
   if (!moov) {
-    throw new MediaParseError("No moov box found — not a valid MP4 file");
+    throw new MediaParseError("No moov box found — not a valid MP4 file", {
+      context: { format: "mp4" },
+    });
   }
 
   const moovStart = moov.offset + moov.headerSize;
@@ -410,14 +438,19 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
 
   let videoTrak: Box | undefined;
   const audioTraks: Box[] = [];
+  const subtitleTraks: Box[] = [];
   for (const box of iterateBoxes(data, moovStart, moovEnd)) {
     if (box.type !== "trak") continue;
     const handler = getTrackHandler(data, box);
     if (handler === "vide" && !videoTrak) videoTrak = box;
     else if (handler === "soun") audioTraks.push(box);
+    else if (handler === "subt" || handler === "text" || handler === "sbtl")
+      subtitleTraks.push(box);
   }
   if (!videoTrak) {
-    throw new MediaParseError("No video track found in MP4 file");
+    throw new MediaParseError("No video track found in MP4 file", {
+      context: { format: "mp4" },
+    });
   }
 
   const trakStart = videoTrak.offset + videoTrak.headerSize;
@@ -434,12 +467,15 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   if (!stsd) {
     throw new MediaParseError(
       "No sample description (stsd) found in video track",
+      { context: { format: "mp4" } },
     );
   }
 
   const dims = parseDimensions(data, stsd);
   if (!dims) {
-    throw new MediaParseError("Could not read video dimensions from stsd");
+    throw new MediaParseError("Could not read video dimensions from stsd", {
+      context: { format: "mp4" },
+    });
   }
 
   const stts = findBoxRecursive(data, trakStart, trakEnd, "stts");
@@ -458,6 +494,7 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const rotation = tkhd ? parseTkhdRotation(data, tkhd) : undefined;
 
   const audioTracks = audioTraks.map((t) => parseAudioTrak(data, t));
+  const subtitleTracks = subtitleTraks.map((t) => parseSubtitleTrak(data, t));
 
   return {
     width: dims.width,
@@ -469,5 +506,6 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
     rotation,
     bitDepth,
     audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
+    subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
   };
 }

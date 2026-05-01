@@ -1,12 +1,34 @@
 /**
+ * Optional context attached to library errors. Helps callers branch on the
+ * failing component (HLS vs MP4 vs WebM) without parsing the message string.
+ */
+export interface VideoResolutionErrorContext {
+  /** The source URL or path being processed when the error occurred. */
+  source?: string;
+  /** Detected/assumed format: "mp4", "webm", "avi", "hls", "dash". */
+  format?: string;
+  /** Byte offset into the source when a parser ran into trouble. */
+  byteOffset?: number;
+  /** HTTP status when the error came from a network request. */
+  status?: number;
+}
+
+/**
  * Base class for every error this library throws. Catch this to handle any
  * failure from `getVideoResolution`, or use one of the subclasses for finer
  * categorization.
  */
 export class VideoResolutionError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
+  /** Structured context, when the throw site supplied any. */
+  readonly context?: VideoResolutionErrorContext;
+
+  constructor(
+    message: string,
+    options?: ErrorOptions & { context?: VideoResolutionErrorContext },
+  ) {
     super(message, options);
     this.name = "VideoResolutionError";
+    this.context = options?.context;
   }
 }
 
@@ -15,7 +37,10 @@ export class VideoResolutionError extends Error {
  * cap exceeded (e.g. manifest body larger than the size limit).
  */
 export class NetworkError extends VideoResolutionError {
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    options?: ErrorOptions & { context?: VideoResolutionErrorContext },
+  ) {
     super(message, options);
     this.name = "NetworkError";
   }
@@ -26,7 +51,10 @@ export class NetworkError extends VideoResolutionError {
  * video resolution.
  */
 export class ManifestParseError extends VideoResolutionError {
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    options?: ErrorOptions & { context?: VideoResolutionErrorContext },
+  ) {
     super(message, options);
     this.name = "ManifestParseError";
   }
@@ -36,7 +64,10 @@ export class ManifestParseError extends VideoResolutionError {
  * Thrown when the `source` argument is not a recognized path or URL.
  */
 export class UnsupportedSourceError extends VideoResolutionError {
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    options?: ErrorOptions & { context?: VideoResolutionErrorContext },
+  ) {
     super(message, options);
     this.name = "UnsupportedSourceError";
   }
@@ -48,7 +79,10 @@ export class UnsupportedSourceError extends VideoResolutionError {
  * available via `error.cause`.
  */
 export class MediaParseError extends VideoResolutionError {
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(
+    message: string,
+    options?: ErrorOptions & { context?: VideoResolutionErrorContext },
+  ) {
     super(message, options);
     this.name = "MediaParseError";
   }

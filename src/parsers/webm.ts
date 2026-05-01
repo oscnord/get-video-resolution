@@ -1,5 +1,5 @@
 import { MediaParseError } from "../errors";
-import type { AudioTrack, ParsedMetadata } from "../types";
+import type { AudioTrack, ParsedMetadata, SubtitleTrack } from "../types";
 import { isHdrCodec } from "../utils/hdr";
 
 const MAX_VINT_SIZE = 6; // 6 bytes = 2^48-1, safely within Number.MAX_SAFE_INTEGER
@@ -83,6 +83,7 @@ function readUint(data: Uint8Array, offset: number, size: number): number {
   if (size > MAX_VINT_SIZE) {
     throw new MediaParseError(
       `EBML uint size ${size} exceeds safe integer range`,
+      { context: { format: "webm" } },
     );
   }
   let value = 0;
@@ -130,6 +131,14 @@ const CODEC_MAP: Record<string, string> = {
   A_DTS: "dts",
   A_PCM_INT_LIT: "pcm",
   A_PCM_FLOAT_IEEE: "pcm",
+  "S_TEXT/UTF8": "srt",
+  "S_TEXT/ASCII": "srt",
+  "S_TEXT/SSA": "ssa",
+  "S_TEXT/ASS": "ass",
+  "S_TEXT/WEBVTT": "wvtt",
+  S_VOBSUB: "vobsub",
+  "S_HDMV/PGS": "pgs",
+  "S_HDMV/TEXTST": "textst",
 };
 
 function mapCodecId(codecId: string): string {
@@ -149,9 +158,15 @@ interface AudioTrackInfo {
   channels?: number;
 }
 
+interface SubtitleTrackInfo {
+  codecId?: string;
+  language?: string;
+}
+
 type ParsedTrack =
   | { type: "video"; info: VideoTrackInfo }
   | { type: "audio"; info: AudioTrackInfo }
+  | { type: "subtitle"; info: SubtitleTrackInfo }
   | null;
 
 function parseTrackEntry(
@@ -209,6 +224,10 @@ function parseTrackEntry(
   }
   if (trackType === 2) {
     return { type: "audio", info: { codecId, language, channels } };
+  }
+  // Matroska TrackType 0x11 = subtitle
+  if (trackType === 0x11) {
+    return { type: "subtitle", info: { codecId, language } };
   }
   return null;
 }
@@ -329,23 +348,33 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   // Validate EBML header
   const headerId = readElementID(data, pos);
   if (!headerId || headerId.value !== EBML_MAGIC) {
-    throw new MediaParseError("Not a valid EBML file");
+    throw new MediaParseError("Not a valid EBML file", {
+      context: { format: "webm" },
+    });
   }
   pos += headerId.length;
 
   const headerSize = readVINT(data, pos);
-  if (!headerSize) throw new MediaParseError("Invalid EBML header size");
+  if (!headerSize)
+    throw new MediaParseError("Invalid EBML header size", {
+      context: { format: "webm" },
+    });
   pos += headerSize.length + headerSize.value;
 
   // Find Segment
   const segId = readElementID(data, pos);
   if (!segId || segId.value !== SEGMENT_ID) {
-    throw new MediaParseError("No Segment element found");
+    throw new MediaParseError("No Segment element found", {
+      context: { format: "webm" },
+    });
   }
   pos += segId.length;
 
   const segSize = readVINT(data, pos);
-  if (!segSize) throw new MediaParseError("Invalid Segment size");
+  if (!segSize)
+    throw new MediaParseError("Invalid Segment size", {
+      context: { format: "webm" },
+    });
   pos += segSize.length;
 
   // EBML unknown size: all data bits set to 1. For any VINT length,
@@ -357,6 +386,7 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   let info: SegmentInfo = { timestampScale: 1_000_000 };
   let videoTrack: VideoTrackInfo | null = null;
   const audioTracks: AudioTrackInfo[] = [];
+  const subtitleTracks: SubtitleTrackInfo[] = [];
   let foundInfo = false;
 
   while (pos < segEnd) {
@@ -391,6 +421,7 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
           const track = parseTrackEntry(data, tPos, tEnd);
           if (track?.type === "video" && !videoTrack) videoTrack = track.info;
           else if (track?.type === "audio") audioTracks.push(track.info);
+          else if (track?.type === "subtitle") subtitleTracks.push(track.info);
         }
 
         tPos = tEnd;
@@ -403,7 +434,9 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   }
 
   if (!videoTrack) {
-    throw new MediaParseError("No video track found in WebM/MKV file");
+    throw new MediaParseError("No video track found in WebM/MKV file", {
+      context: { format: "webm" },
+    });
   }
 
   const codec = videoTrack.codecId ? mapCodecId(videoTrack.codecId) : undefined;
@@ -420,6 +453,10 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
     language: t.language && t.language !== "und" ? t.language : undefined,
     channels: t.channels,
   }));
+  const mappedSubtitles: SubtitleTrack[] = subtitleTracks.map((t) => ({
+    codec: t.codecId ? mapCodecId(t.codecId) : undefined,
+    language: t.language && t.language !== "und" ? t.language : undefined,
+  }));
 
   return {
     width: videoTrack.width,
@@ -430,5 +467,6 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
     hdr: isHdrCodec(codec),
     bitDepth: inferBitDepth(codec),
     audioTracks: mappedAudio.length > 0 ? mappedAudio : undefined,
+    subtitleTracks: mappedSubtitles.length > 0 ? mappedSubtitles : undefined,
   };
 }

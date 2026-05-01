@@ -23,7 +23,9 @@ export async function parseHls(
   const rawVariants = extractRawVariants(content);
 
   if (rawVariants.length === 0) {
-    throw new ManifestParseError("No RESOLUTION found in HLS manifest");
+    throw new ManifestParseError("No RESOLUTION found in HLS manifest", {
+      context: { format: "hls", source },
+    });
   }
 
   const encrypted = detectEncryption(content) ? true : undefined;
