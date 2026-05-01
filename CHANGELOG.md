@@ -1,6 +1,10 @@
 # Changelog
 
-## 2.2.2
+The actual version is bumped by the publish workflow (`npm version <bump>`).
+Entries below describe everything that has landed since the most recent
+release tag.
+
+## Unreleased
 
 ### Features
 
@@ -22,43 +26,29 @@
 
 ### Robustness
 
-- **`pickVariants` is deterministic.** On equal area, the variant with higher
-  bitrate wins (`pick: "highest"`) or lower bitrate wins (`pick: "lowest"`).
-  Previously a strict `>` comparison let later variants win on tie.
-- **README docs `subtitleTracks` for file inputs** and includes an explicit
-  `ReadableStream` usage example.
-
-### Tests
-
-- 20 new tests across feature coverage (subtitle/audio extraction, HEVC bit
-  depth, magic-byte sniff, deterministic tie-break) and gap coverage —
-  pinning that every network code path honours `options.timeout`, that custom
-  `fetch` is used for every request (HLS GET, file Range, sniff HEAD, magic
-  Range probe), that built `dist/` bundles contain real code (a regression
-  test against last release's silent Bun-bundler issue).
-
-## 2.2.1
-
-### Robustness
-
-- Guard against integer overflow in MP4 64-bit box size / duration reads. Values
-  past `Number.MAX_SAFE_INTEGER` now clamp instead of silently truncating.
+- Guard against integer overflow in MP4 64-bit box size / duration reads.
+  Values past `Number.MAX_SAFE_INTEGER` now clamp instead of silently
+  truncating.
 - Reject WebM/Matroska EBML uint elements claiming more than 6 bytes (would
   overflow JS safe-integer range and yield garbage dimensions or durations).
 - DASH `frameRate="N/0"` no longer produces `Infinity`. Returns `undefined` on
   any non-finite or non-positive denominator.
 - `getAspectRatio` returns `undefined` for zero, negative, or non-finite
   dimensions instead of `"0:1"`.
-- `parseColr` and `parseCodecInfo` validate that the visual sample entry is at
-  least 86 bytes before reading children, preventing OOB reads on malformed MP4.
-- File-format detection no longer caps its MP4 box scan at 64 bytes; iterates up
-  to 16 boxes for early-stream metadata layouts.
-- `ReadableStream` input is capped at 2 MB to prevent unbounded memory use; only
-  the head and tail of large streams are needed for parsing.
+- `parseColr` and `parseCodecInfo` validate that the visual sample entry is
+  at least 86 bytes before reading children, preventing OOB reads on malformed
+  MP4.
+- File-format detection no longer caps its MP4 box scan at 64 bytes; iterates
+  up to 16 boxes for early-stream metadata layouts.
+- `ReadableStream` input is capped at 2 MB to prevent unbounded memory use;
+  only the head and tail of large streams are needed for parsing.
 - HLS/DASH manifest fetching enforces a 10 MB cap on response body size and
   honours `Content-Length` upfront, throwing `NetworkError` on oversize.
 - Sniff (`sniff: true`) HEAD request now honours `options.timeout`. Previously
   the timeout was bypassed for the content-type probe.
+- `pickVariants` is deterministic. On equal area, the variant with higher
+  bitrate wins (`pick: "highest"`) or lower bitrate wins (`pick: "lowest"`).
+  Previously a strict `>` comparison let later variants win on tie.
 
 ### DX
 
@@ -67,6 +57,8 @@
   surfaces in IDE hover tooltips.
 - `VideoInfo extends Resolution` so the previously-unused `Resolution` export
   is now part of the type chain.
+- README documents `subtitleTracks` for file inputs and includes an explicit
+  `ReadableStream` usage example.
 
 ### Refactor
 
@@ -82,9 +74,13 @@
 
 ### Tests
 
-- Added 75 new tests covering helper units, regression scenarios, public API
-  surface, multi-Period DASH, multi-codec HLS, sniff failure paths, error cause
-  chains, and a property-style sanity sweep across all fixtures.
+- 95 new tests (135 → 231) across helper units, regression scenarios, public
+  API surface, multi-Period DASH, multi-codec HLS, sniff failure paths, error
+  cause chains, a property-style sanity sweep across all fixtures, and gap
+  coverage that pins past-bug classes (every network path must honour
+  `options.timeout`; custom `fetch` is used for every request including the
+  magic-byte Range probe; built `dist/` bundles must contain real code, not
+  just export wrappers).
 
 ### Tooling
 

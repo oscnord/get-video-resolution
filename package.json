@@ -1,6 +1,6 @@
 {
   "name": "@oscnord/get-video-resolution",
-  "version": "2.2.2",
+  "version": "2.2.0",
   "description": "Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Zero dependencies, no ffmpeg.",
   "type": "module",
   "engines": {
