@@ -17,7 +17,9 @@ await Bun.build({
   format: "cjs",
   target: "node",
   sourcemap: "linked",
+  minify: false,
   naming: "[dir]/[name].cjs",
+  bytecode: false,
 });
 
 await $`bunx tsc --emitDeclarationOnly`;

@@ -50,7 +50,7 @@ jobs:
         run: |
           node -e "
             const { getVideoResolution } = require('./dist/index.cjs');
-            getVideoResolution('test/fixtures/h264_1080p.mp4').then(info => {
+            getVideoResolution('./test/fixtures/h264_1080p.mp4').then(info => {
               if (info.width !== 1920 || info.height !== 1080) {
                 console.error('Unexpected:', info);
                 process.exit(1);

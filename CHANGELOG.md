@@ -41,7 +41,7 @@
 
 ### Tooling
 
-- Added `sideEffects: false` and `engines.node: ">=18"` to `package.json`.
+- Added `engines.node: ">=18"` to `package.json`.
 - Build now emits source maps for both ESM and CJS bundles.
 - TypeScript target lowered from `ESNext` to `ES2022` for wider downstream
   compatibility.

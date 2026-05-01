@@ -3,7 +3,6 @@
   "version": "2.2.1",
   "description": "Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Zero dependencies, no ffmpeg.",
   "type": "module",
-  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },

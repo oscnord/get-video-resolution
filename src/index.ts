@@ -1,11 +1,20 @@
-export {
+import {
   ManifestParseError,
   MediaParseError,
   NetworkError,
   UnsupportedSourceError,
   VideoResolutionError,
 } from "./errors";
-export { getVideoResolution } from "./resolver";
+import { getVideoResolution } from "./resolver";
+
+export {
+  getVideoResolution,
+  ManifestParseError,
+  MediaParseError,
+  NetworkError,
+  UnsupportedSourceError,
+  VideoResolutionError,
+};
 export type {
   AudioTrack,
   GetVideoResolutionOptions,
