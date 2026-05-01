@@ -1,5 +1,12 @@
 import { MediaParseError } from "../errors";
 import type { AudioTrack, ParsedMetadata } from "../types";
+import {
+  readFourCC,
+  readI32BE as readI32,
+  readU16BE as readU16,
+  readU32BE as readU32,
+  readU64BE as readU64,
+} from "../utils/binary";
 import { isHdrCodec } from "../utils/hdr";
 
 interface CodecInfo {
@@ -29,44 +36,6 @@ const CONTAINER_TYPES = new Set([
   "schi",
   "udta",
 ]);
-
-function readU16(data: Uint8Array, offset: number): number {
-  return (data[offset] << 8) | data[offset + 1];
-}
-
-function readU32(data: Uint8Array, offset: number): number {
-  return (
-    ((data[offset] << 24) |
-      (data[offset + 1] << 16) |
-      (data[offset + 2] << 8) |
-      data[offset + 3]) >>>
-    0
-  );
-}
-
-function readI32(data: Uint8Array, offset: number): number {
-  return (
-    (data[offset] << 24) |
-    (data[offset + 1] << 16) |
-    (data[offset + 2] << 8) |
-    data[offset + 3]
-  );
-}
-
-function readU64(data: Uint8Array, offset: number): number {
-  const high = readU32(data, offset);
-  const low = readU32(data, offset + 4);
-  return high * 0x100000000 + low;
-}
-
-function readFourCC(data: Uint8Array, offset: number): string {
-  return String.fromCharCode(
-    data[offset],
-    data[offset + 1],
-    data[offset + 2],
-    data[offset + 3],
-  );
-}
 
 function readBoxHeader(data: Uint8Array, offset: number): Box | null {
   if (offset + 8 > data.length) return null;
@@ -252,7 +221,7 @@ function parseDimensions(
 function parseColr(data: Uint8Array, stsd: Box): boolean | null {
   const entryStart = stsd.offset + stsd.headerSize + 8;
   const entryBox = readBoxHeader(data, entryStart);
-  if (!entryBox) return null;
+  if (!entryBox || entryBox.size < 86) return null;
 
   // Child boxes of visual sample entry start at +86 from entry box start
   const childrenStart = entryStart + 86;
@@ -262,7 +231,7 @@ function parseColr(data: Uint8Array, stsd: Box): boolean | null {
   if (!colr) return null;
 
   const colrData = colr.offset + colr.headerSize;
-  if (colrData + 6 > data.length) return null;
+  if (colrData + 8 > data.length) return null;
 
   const colrType = readFourCC(data, colrData);
   if (colrType !== "nclx") return null;
@@ -326,6 +295,9 @@ function buildHevcCodec(data: Uint8Array, box: Box): CodecInfo {
     codec += `.${b.toString(16).toUpperCase()}`;
   }
 
+  // profileIdc 1 = Main (8-bit), 2 = Main 10 (10-bit). Profiles 3+ (Range
+  // Extensions etc.) are best-effort and may carry a different bit depth via
+  // constraint flags, but this covers the common case correctly.
   const bitDepth = profileIdc === 2 ? 10 : 8;
 
   return { codec, bitDepth };
@@ -362,7 +334,7 @@ function hex(n: number): string {
 function parseCodecInfo(data: Uint8Array, stsd: Box): CodecInfo {
   const entryStart = stsd.offset + stsd.headerSize + 8;
   const entryBox = readBoxHeader(data, entryStart);
-  if (!entryBox) return { codec: "unknown" };
+  if (!entryBox || entryBox.size < 86) return { codec: "unknown" };
 
   const childrenStart = entryStart + 86;
   const childrenEnd = entryStart + entryBox.size;

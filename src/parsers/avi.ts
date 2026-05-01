@@ -1,24 +1,6 @@
 import { MediaParseError } from "../errors";
 import type { ParsedMetadata } from "../types";
-
-function readU32LE(data: Uint8Array, offset: number): number {
-  return (
-    (data[offset] |
-      (data[offset + 1] << 8) |
-      (data[offset + 2] << 16) |
-      (data[offset + 3] << 24)) >>>
-    0
-  );
-}
-
-function readFourCC(data: Uint8Array, offset: number): string {
-  return String.fromCharCode(
-    data[offset],
-    data[offset + 1],
-    data[offset + 2],
-    data[offset + 3],
-  );
-}
+import { readFourCC, readU32LE } from "../utils/binary";
 
 const CODEC_MAP: Record<string, string> = {
   H264: "avc1",

@@ -2,6 +2,8 @@ import { MediaParseError } from "../errors";
 import type { AudioTrack, ParsedMetadata } from "../types";
 import { isHdrCodec } from "../utils/hdr";
 
+const MAX_VINT_SIZE = 6; // 6 bytes = 2^48-1, safely within Number.MAX_SAFE_INTEGER
+
 // Matroska element IDs
 export const EBML_MAGIC = 0x1a45dfa3;
 const SEGMENT_ID = 0x18538067;
@@ -47,6 +49,10 @@ function readVINT(data: Uint8Array, offset: number): VINTResult | null {
     value = value * 256 + data[offset + i];
   }
 
+  // Values past Number.MAX_SAFE_INTEGER are EBML "unknown size" sentinels.
+  // Callers handle that via the >= MAX_SAFE_INTEGER comparison.
+  if (!Number.isFinite(value)) return null;
+
   return { value, length };
 }
 
@@ -74,6 +80,11 @@ function readElementID(data: Uint8Array, offset: number): VINTResult | null {
 }
 
 function readUint(data: Uint8Array, offset: number, size: number): number {
+  if (size > MAX_VINT_SIZE) {
+    throw new MediaParseError(
+      `EBML uint size ${size} exceeds safe integer range`,
+    );
+  }
   let value = 0;
   for (let i = 0; i < size; i++) {
     value = value * 256 + data[offset + i];

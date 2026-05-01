@@ -1,8 +1,12 @@
 {
   "name": "@oscnord/get-video-resolution",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Zero dependencies, no ffmpeg.",
   "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -21,6 +25,7 @@
   "scripts": {
     "build": "bun run build.ts",
     "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
     "lint": "bunx biome check .",
     "lint:fix": "bunx biome check --write ."
   },
