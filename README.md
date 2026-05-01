@@ -221,7 +221,11 @@ The input type is detected automatically by file extension:
 | `.mpd` | DASH manifest parser |
 | Everything else | Built-in file parser (MP4, MOV, WebM, MKV, AVI) |
 
-When `sniff: true` and the URL has no recognized extension, a HEAD request detects the content type.
+When `sniff: true` and the URL has no recognized extension, a HEAD request inspects the `Content-Type`:
+
+- `application/vnd.apple.mpegurl` / `audio/mpegurl` → HLS
+- `application/dash+xml` → DASH
+- A generic type (`application/octet-stream`, `text/plain`, `text/xml`, or empty) triggers a small `Range: bytes=0-2047` GET that inspects the first bytes for `#EXTM3U`, `<MPD`, or `<?xml` before falling back to the file parser.
 
 ## Error handling
 
@@ -263,6 +267,34 @@ try {
 | `ManifestParseError` | HLS/DASH manifest could not be parsed or has no resolution |
 | `UnsupportedSourceError` | Source string is not a valid path or URL |
 | `MediaParseError` | File could not be parsed or has no video track |
+
+#### Structured error context
+
+Every error carries an optional `context` object so you can branch without parsing message strings:
+
+```typescript
+try {
+  await getVideoResolution(source);
+} catch (error) {
+  if (error instanceof MediaParseError && error.context?.format === "mp4") {
+    // we know the file detected as MP4 but parsing failed
+  }
+  if (error instanceof NetworkError && error.context?.status === 404) {
+    // ...
+  }
+}
+```
+
+```typescript
+interface VideoResolutionErrorContext {
+  source?: string;       // URL or path being processed
+  format?: string;       // "mp4" | "webm" | "avi" | "hls" | "dash"
+  byteOffset?: number;   // file offset, for parser errors
+  status?: number;       // HTTP status, for network errors
+}
+```
+
+Errors thrown from the file parser also preserve the underlying cause via `error.cause` when wrapping a non-`VideoResolutionError`.
 
 ## CommonJS
 
