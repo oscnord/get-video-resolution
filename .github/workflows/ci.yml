@@ -23,5 +23,71 @@ jobs:
           lfs: true
       - uses: oven-sh/setup-bun@v2
       - run: bun install
-      - run: bun test
+      - run: bun test --coverage
       - run: bun run build
+
+  types-resolution:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run build
+      - name: Verify dual-package types resolve
+        run: bunx --bun @arethetypeswrong/cli@latest --pack
+
+  browser-bundle:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - name: Bundle for browser target
+        run: |
+          bun build src/index.ts \
+            --target=browser \
+            --outfile=/tmp/browser.js
+          test -s /tmp/browser.js
+          # The browser bundle should not statically reference Node built-ins.
+          # node:fs/promises is dynamically imported only on local-path inputs,
+          # so a static "node:fs" hit at the top level would mean accidental
+          # Node-only code reached the public surface.
+          if grep -q 'require("node:fs' /tmp/browser.js; then
+            echo "Browser bundle statically imports node:fs"
+            exit 1
+          fi
+
+  node-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: bun install
+      - run: bun run build
+      - name: Smoke test CJS import
+        run: node -e "const m = require('./dist/index.cjs'); if (typeof m.getVideoResolution !== 'function') process.exit(1);"
+      - name: Smoke test ESM import
+        run: node --input-type=module -e "import('./dist/index.js').then(m => { if (typeof m.getVideoResolution !== 'function') process.exit(1); });"
+      - name: Smoke test with a real fixture (CJS)
+        run: |
+          node -e "
+            const { getVideoResolution } = require('./dist/index.cjs');
+            getVideoResolution('./test/fixtures/h264_1080p.mp4').then(info => {
+              if (info.width !== 1920 || info.height !== 1080) {
+                console.error('Unexpected:', info);
+                process.exit(1);
+              }
+              console.log('CJS smoke OK:', info.width + 'x' + info.height);
+            }).catch(e => { console.error(e); process.exit(1); });
+          "

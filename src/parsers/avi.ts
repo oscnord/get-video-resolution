@@ -1,23 +1,31 @@
 import { MediaParseError } from "../errors";
-import type { ParsedMetadata } from "../types";
+import type { AudioTrack, ParsedMetadata } from "../types";
+import { readFourCC, readU32LE } from "../utils/binary";
 
-function readU32LE(data: Uint8Array, offset: number): number {
-  return (
-    (data[offset] |
-      (data[offset + 1] << 8) |
-      (data[offset + 2] << 16) |
-      (data[offset + 3] << 24)) >>>
-    0
-  );
+function readU16LE(data: Uint8Array, offset: number): number {
+  return data[offset] | (data[offset + 1] << 8);
 }
 
-function readFourCC(data: Uint8Array, offset: number): string {
-  return String.fromCharCode(
-    data[offset],
-    data[offset + 1],
-    data[offset + 2],
-    data[offset + 3],
-  );
+const WAVE_FORMAT_MAP: Record<number, string> = {
+  1: "pcm",
+  3: "pcm",
+  6: "alaw",
+  7: "mulaw",
+  80: "mp2",
+  85: "mp3",
+  353: "wma",
+  354: "wma",
+  355: "wma",
+  8192: "ac-3",
+  8193: "dts",
+  26448: "vorbis",
+  26447: "vorbis",
+  41222: "aac",
+  61868: "flac",
+};
+
+function mapWaveFormat(tag: number): string {
+  return WAVE_FORMAT_MAP[tag] ?? `wfx-0x${tag.toString(16).padStart(4, "0")}`;
 }
 
 const CODEC_MAP: Record<string, string> = {
@@ -136,20 +144,27 @@ function parseStrf(data: Uint8Array, offset: number): BitmapInfo {
 export function parseAVI(data: Uint8Array): ParsedMetadata {
   // Validate RIFF header
   if (data.length < 12) {
-    throw new MediaParseError("File too small to be a valid AVI");
+    throw new MediaParseError("File too small to be a valid AVI", {
+      context: { format: "avi" },
+    });
   }
 
   const riff = readFourCC(data, 0);
   const aviType = readFourCC(data, 8);
   if (riff !== "RIFF" || aviType !== "AVI ") {
-    throw new MediaParseError("Not a valid AVI file");
+    throw new MediaParseError("Not a valid AVI file", {
+      context: { format: "avi" },
+    });
   }
 
   const riffEnd = Math.min(8 + readU32LE(data, 4), data.length);
 
   // Find hdrl LIST
   const hdrl = findList(data, 12, riffEnd, "hdrl");
-  if (!hdrl) throw new MediaParseError("No hdrl list found in AVI");
+  if (!hdrl)
+    throw new MediaParseError("No hdrl list found in AVI", {
+      context: { format: "avi" },
+    });
 
   const hdrlStart = hdrl.offset + 12; // skip LIST + size + "hdrl"
   const hdrlEnd = hdrl.offset + 8 + hdrl.size;
@@ -170,12 +185,14 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
     fallbackHeight = readU32LE(data, avihData + 36);
   }
 
-  // Find first video stream (strl LIST with strh.fccType == "vids")
+  // Walk strl LISTs collecting the first video stream and every audio stream
   let width = 0;
   let height = 0;
   let codec: string | undefined;
   let fps: number | undefined;
   let totalFrames = 0;
+  let videoFound = false;
+  const audioTracks: AudioTrack[] = [];
 
   let pos = hdrlStart;
   while (pos + 12 <= hdrlEnd) {
@@ -193,7 +210,7 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
         if (strhChunk) {
           const strh = parseStrh(data, strhChunk.offset + 8);
 
-          if (strh.fccType === "vids") {
+          if (strh.fccType === "vids" && !videoFound) {
             codec = mapCodec(strh.fccHandler);
             totalFrames = strh.dwLength;
 
@@ -212,8 +229,18 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
                 codec = mapCodec(strf.biCompression);
               }
             }
-
-            break; // found video stream
+            videoFound = true;
+          } else if (strh.fccType === "auds") {
+            const strfChunk = findChunk(data, strlStart, strlEnd, "strf");
+            if (strfChunk && strfChunk.size >= 14) {
+              const strfData = strfChunk.offset + 8;
+              const formatTag = readU16LE(data, strfData);
+              const channels = readU16LE(data, strfData + 2);
+              audioTracks.push({
+                codec: mapWaveFormat(formatTag),
+                channels: channels > 0 ? channels : undefined,
+              });
+            }
           }
         }
       }
@@ -229,7 +256,9 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
   if (!fps) fps = fallbackFps;
 
   if (width === 0 || height === 0) {
-    throw new MediaParseError("No video dimensions found in AVI file");
+    throw new MediaParseError("No video dimensions found in AVI file", {
+      context: { format: "avi" },
+    });
   }
 
   const framerate = fps ? Math.round(fps * 1000) / 1000 : undefined;
@@ -243,5 +272,6 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
     codec,
     framerate,
     hdr: false, // AVI predates HDR
+    audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
   };
 }

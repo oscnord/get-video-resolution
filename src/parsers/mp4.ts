@@ -1,6 +1,13 @@
 import { MediaParseError } from "../errors";
-import type { AudioTrack, ParsedMetadata } from "../types";
-import { isHdrCodec } from "../utils/hdr";
+import type { AudioTrack, ParsedMetadata, SubtitleTrack } from "../types";
+import {
+  readFourCC,
+  readI32BE as readI32,
+  readU16BE as readU16,
+  readU32BE as readU32,
+  readU64BE as readU64,
+} from "../utils/binary";
+import { isDefiniteHdrCodec } from "../utils/hdr";
 
 interface CodecInfo {
   codec: string;
@@ -29,44 +36,6 @@ const CONTAINER_TYPES = new Set([
   "schi",
   "udta",
 ]);
-
-function readU16(data: Uint8Array, offset: number): number {
-  return (data[offset] << 8) | data[offset + 1];
-}
-
-function readU32(data: Uint8Array, offset: number): number {
-  return (
-    ((data[offset] << 24) |
-      (data[offset + 1] << 16) |
-      (data[offset + 2] << 8) |
-      data[offset + 3]) >>>
-    0
-  );
-}
-
-function readI32(data: Uint8Array, offset: number): number {
-  return (
-    (data[offset] << 24) |
-    (data[offset + 1] << 16) |
-    (data[offset + 2] << 8) |
-    data[offset + 3]
-  );
-}
-
-function readU64(data: Uint8Array, offset: number): number {
-  const high = readU32(data, offset);
-  const low = readU32(data, offset + 4);
-  return high * 0x100000000 + low;
-}
-
-function readFourCC(data: Uint8Array, offset: number): string {
-  return String.fromCharCode(
-    data[offset],
-    data[offset + 1],
-    data[offset + 2],
-    data[offset + 3],
-  );
-}
 
 function readBoxHeader(data: Uint8Array, offset: number): Box | null {
   if (offset + 8 > data.length) return null;
@@ -252,7 +221,7 @@ function parseDimensions(
 function parseColr(data: Uint8Array, stsd: Box): boolean | null {
   const entryStart = stsd.offset + stsd.headerSize + 8;
   const entryBox = readBoxHeader(data, entryStart);
-  if (!entryBox) return null;
+  if (!entryBox || entryBox.size < 86) return null;
 
   // Child boxes of visual sample entry start at +86 from entry box start
   const childrenStart = entryStart + 86;
@@ -262,7 +231,7 @@ function parseColr(data: Uint8Array, stsd: Box): boolean | null {
   if (!colr) return null;
 
   const colrData = colr.offset + colr.headerSize;
-  if (colrData + 6 > data.length) return null;
+  if (colrData + 8 > data.length) return null;
 
   const colrType = readFourCC(data, colrData);
   if (colrType !== "nclx") return null;
@@ -326,7 +295,15 @@ function buildHevcCodec(data: Uint8Array, box: Box): CodecInfo {
     codec += `.${b.toString(16).toUpperCase()}`;
   }
 
-  const bitDepth = profileIdc === 2 ? 10 : 8;
+  // hvcC layout: bit_depth_luma_minus8 lives in the lower 3 bits of byte 17
+  // (bodyStart-relative) per ISO/IEC 14496-15. Fall back to profileIdc when
+  // the box is too short to carry the field.
+  let bitDepth: number;
+  if (bodyStart + 18 <= data.length) {
+    bitDepth = (data[bodyStart + 17] & 0x07) + 8;
+  } else {
+    bitDepth = profileIdc === 2 ? 10 : 8;
+  }
 
   return { codec, bitDepth };
 }
@@ -362,7 +339,7 @@ function hex(n: number): string {
 function parseCodecInfo(data: Uint8Array, stsd: Box): CodecInfo {
   const entryStart = stsd.offset + stsd.headerSize + 8;
   const entryBox = readBoxHeader(data, entryStart);
-  if (!entryBox) return { codec: "unknown" };
+  if (!entryBox || entryBox.size < 86) return { codec: "unknown" };
 
   const childrenStart = entryStart + 86;
   const childrenEnd = entryStart + entryBox.size;
@@ -402,12 +379,25 @@ function parseAudioSampleEntry(
   const entryBox = readBoxHeader(data, entryStart);
   if (!entryBox) return null;
 
-  // Audio sample entry: 8 header + 6 reserved + 2 data_ref_index + 8 reserved + 2 channelcount
+  // Audio sample entry layout:
+  //   +0..7   box header (size + fourcc)
+  //   +8..13  6 reserved
+  //   +14..15 data_reference_index
+  //   +16..17 version (QuickTime sound sample description; 0 in ISO BMFF)
+  //
+  // For version 0/1 the channelcount lives at body+16 (= entryStart+24) as
+  // a 16-bit BE int. For QuickTime v2 that field is a sentinel (always 3),
+  // and the real channel count is a 32-bit BE int at body+40 (= entryStart+48).
+  if (entryStart + 18 > data.length) return null;
+  const version = readU16(data, entryStart + 16);
+
+  if (version === 2) {
+    if (entryStart + 52 > data.length) return null;
+    return { codec: entryBox.type, channels: readU32(data, entryStart + 48) };
+  }
+
   if (entryStart + 26 > data.length) return null;
-
-  const channels = readU16(data, entryStart + 24);
-
-  return { codec: entryBox.type, channels };
+  return { codec: entryBox.type, channels: readU16(data, entryStart + 24) };
 }
 
 function parseAudioTrak(data: Uint8Array, trak: Box): AudioTrack {
@@ -427,10 +417,33 @@ function parseAudioTrak(data: Uint8Array, trak: Box): AudioTrack {
   };
 }
 
+function parseSubtitleEntryCodec(
+  data: Uint8Array,
+  stsd: Box,
+): string | undefined {
+  const entryStart = stsd.offset + stsd.headerSize + 8;
+  const entryBox = readBoxHeader(data, entryStart);
+  return entryBox?.type;
+}
+
+function parseSubtitleTrak(data: Uint8Array, trak: Box): SubtitleTrack {
+  const trakStart = trak.offset + trak.headerSize;
+  const trakEnd = trak.offset + trak.size;
+  const stsd = findBoxRecursive(data, trakStart, trakEnd, "stsd");
+  const mdhd = findBoxRecursive(data, trakStart, trakEnd, "mdhd");
+  const mdhdInfo = mdhd ? parseMdhd(data, mdhd) : null;
+  return {
+    codec: stsd ? parseSubtitleEntryCodec(data, stsd) : undefined,
+    language: mdhdInfo?.language,
+  };
+}
+
 export function parseMP4(data: Uint8Array): ParsedMetadata {
   const moov = findBox(data, 0, data.length, "moov");
   if (!moov) {
-    throw new MediaParseError("No moov box found — not a valid MP4 file");
+    throw new MediaParseError("No moov box found — not a valid MP4 file", {
+      context: { format: "mp4" },
+    });
   }
 
   const moovStart = moov.offset + moov.headerSize;
@@ -438,14 +451,19 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
 
   let videoTrak: Box | undefined;
   const audioTraks: Box[] = [];
+  const subtitleTraks: Box[] = [];
   for (const box of iterateBoxes(data, moovStart, moovEnd)) {
     if (box.type !== "trak") continue;
     const handler = getTrackHandler(data, box);
     if (handler === "vide" && !videoTrak) videoTrak = box;
     else if (handler === "soun") audioTraks.push(box);
+    else if (handler === "subt" || handler === "text" || handler === "sbtl")
+      subtitleTraks.push(box);
   }
   if (!videoTrak) {
-    throw new MediaParseError("No video track found in MP4 file");
+    throw new MediaParseError("No video track found in MP4 file", {
+      context: { format: "mp4" },
+    });
   }
 
   const trakStart = videoTrak.offset + videoTrak.headerSize;
@@ -462,12 +480,15 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   if (!stsd) {
     throw new MediaParseError(
       "No sample description (stsd) found in video track",
+      { context: { format: "mp4" } },
     );
   }
 
   const dims = parseDimensions(data, stsd);
   if (!dims) {
-    throw new MediaParseError("Could not read video dimensions from stsd");
+    throw new MediaParseError("Could not read video dimensions from stsd", {
+      context: { format: "mp4" },
+    });
   }
 
   const stts = findBoxRecursive(data, trakStart, trakEnd, "stts");
@@ -478,14 +499,18 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const codec = codecInfo.codec === "unknown" ? undefined : codecInfo.codec;
   const bitDepth = codecInfo.bitDepth;
 
-  // colr box HDR takes priority over codec string pattern
+  // colr box is the authoritative HDR signal (PQ/HLG transfer characteristics).
+  // When colr is missing, only fall back to codec strings that unambiguously
+  // indicate HDR (Dolby Vision). Probable-but-ambiguous patterns like Main 10
+  // are NOT used here, so SDR Main 10 sources don't get falsely flagged.
   const colrHdr = parseColr(data, stsd);
-  const hdr = colrHdr ?? isHdrCodec(codec);
+  const hdr = colrHdr ?? isDefiniteHdrCodec(codec);
 
   const tkhd = findBox(data, trakStart, trakEnd, "tkhd");
   const rotation = tkhd ? parseTkhdRotation(data, tkhd) : undefined;
 
   const audioTracks = audioTraks.map((t) => parseAudioTrak(data, t));
+  const subtitleTracks = subtitleTraks.map((t) => parseSubtitleTrak(data, t));
 
   return {
     width: dims.width,
@@ -497,5 +522,6 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
     rotation,
     bitDepth,
     audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
+    subtitleTracks: subtitleTracks.length > 0 ? subtitleTracks : undefined,
   };
 }

@@ -1,11 +1,12 @@
-export {
+import {
   ManifestParseError,
   MediaParseError,
   NetworkError,
   UnsupportedSourceError,
   VideoResolutionError,
 } from "./errors";
-export { getVideoResolution } from "./resolver";
+import { getVideoResolution } from "./resolver";
+
 export type {
   AudioTrack,
   GetVideoResolutionOptions,
@@ -13,3 +14,11 @@ export type {
   SubtitleTrack,
   VideoInfo,
 } from "./types";
+export {
+  getVideoResolution,
+  ManifestParseError,
+  MediaParseError,
+  NetworkError,
+  UnsupportedSourceError,
+  VideoResolutionError,
+};

@@ -4,13 +4,20 @@ import { getAspectRatio } from "../utils/aspect-ratio";
 import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
 import { isHdrCodec } from "../utils/hdr";
+import { normalizeLanguage } from "../utils/manifest";
+import {
+  iterateOpenTags,
+  parseDashFrameRate,
+  parseIso8601Duration,
+  parseXmlAttrs,
+} from "./dash-helpers";
 
 export async function parseDash(
   source: string,
   options: FetchOptions,
 ): Promise<VideoInfo[]> {
   const content = await loadManifest(source, options);
-  const duration = extractDuration(content);
+  const duration = extractMpdDuration(content);
 
   const periodMatch = /<Period\b[^>]*?>([\s\S]*?)<\/Period>/i.exec(content);
   const periodContent = periodMatch ? periodMatch[1] : content;
@@ -18,7 +25,9 @@ export async function parseDash(
   const representations = extractRepresentations(periodContent, duration);
 
   if (representations.length === 0) {
-    throw new ManifestParseError("No resolution found in DASH manifest");
+    throw new ManifestParseError("No resolution found in DASH manifest", {
+      context: { format: "dash", source },
+    });
   }
 
   const encrypted = detectEncryption(periodContent) ? true : undefined;
@@ -34,58 +43,29 @@ export async function parseDash(
   return representations;
 }
 
-function extractDuration(content: string): number | undefined {
+function extractMpdDuration(content: string): number | undefined {
   const match = /mediaPresentationDuration="PT([^"]+)"/.exec(content);
-  if (!match) return undefined;
-  return parseIso8601Duration(match[1]);
-}
-
-function parseIso8601Duration(duration: string): number {
-  let seconds = 0;
-  const hours = /(\d+(?:\.\d+)?)H/.exec(duration);
-  const minutes = /(\d+(?:\.\d+)?)M/.exec(duration);
-  const secs = /(\d+(?:\.\d+)?)S/.exec(duration);
-
-  if (hours) seconds += parseFloat(hours[1]) * 3600;
-  if (minutes) seconds += parseFloat(minutes[1]) * 60;
-  if (secs) seconds += parseFloat(secs[1]);
-
-  return seconds;
+  return match ? parseIso8601Duration(match[1]) : undefined;
 }
 
 function extractRepresentations(
   content: string,
   duration: number | undefined,
 ): VideoInfo[] {
-  const regex = /<Representation\b[^>]*?\/?>/gi;
   const representations: VideoInfo[] = [];
+  for (const { attrs } of iterateOpenTags(content, "Representation")) {
+    const a = parseXmlAttrs(attrs);
+    const widthStr = a.get("width");
+    const heightStr = a.get("height");
+    if (!widthStr || !heightStr) continue;
+    const width = parseInt(widthStr, 10);
+    const height = parseInt(heightStr, 10);
+    if (!(width > 0 && height > 0)) continue;
 
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    const tag = match[0];
-    const wMatch = /\bwidth=["'](\d+)["']/.exec(tag);
-    const hMatch = /\bheight=["'](\d+)["']/.exec(tag);
-    if (!wMatch || !hMatch) continue;
-    const width = parseInt(wMatch[1], 10);
-    const height = parseInt(hMatch[1], 10);
-
-    const bwMatch = /bandwidth=["'](\d+)["']/.exec(tag);
-    const bitrate = bwMatch ? parseInt(bwMatch[1], 10) : undefined;
-
-    const codecMatch = /codecs=["']([^"']+)["']/.exec(tag);
-    const codec = codecMatch ? codecMatch[1] : undefined;
-
-    const frMatch = /frameRate=["']?([\d.]+(?:\/\d+)?)["']?/.exec(tag);
-    let framerate: number | undefined;
-    if (frMatch) {
-      const frValue = frMatch[1];
-      if (frValue.includes("/")) {
-        const [num, den] = frValue.split("/").map(Number);
-        framerate = num / den;
-      } else {
-        framerate = parseFloat(frValue);
-      }
-    }
+    const bandwidth = a.get("bandwidth");
+    const bitrate = bandwidth ? parseInt(bandwidth, 10) : undefined;
+    const codec = a.get("codecs");
+    const framerate = parseDashFrameRate(a.get("frameRate"));
 
     representations.push({
       width,
@@ -98,7 +78,6 @@ function extractRepresentations(
       hdr: isHdrCodec(codec),
     });
   }
-
   return representations;
 }
 
@@ -107,58 +86,51 @@ function detectEncryption(content: string): boolean {
 }
 
 function extractAudioAdaptationSets(content: string): AudioTrack[] {
-  const regex =
-    /<AdaptationSet\b[^>]*?mimeType=["']audio\/[^"']*["'][^>]*?>([\s\S]*?)<\/AdaptationSet>/gi;
   const tracks: AudioTrack[] = [];
+  for (const { attrs, body } of iterateOpenTags(content, "AdaptationSet")) {
+    const a = parseXmlAttrs(attrs);
+    const mimeType = a.get("mimeType") ?? "";
+    if (!mimeType.startsWith("audio/")) continue;
 
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    const tag = match[0];
-    const body = match[1];
-
-    const langMatch = /\blang=["']([^"']+)["']/.exec(tag);
-    const language = langMatch?.[1];
-
-    const repMatch = /<Representation\b[^>]*?\/?>/i.exec(body);
-    let codec: string | undefined;
-    if (repMatch) {
-      const codecMatch = /codecs=["']([^"']+)["']/.exec(repMatch[0]);
-      codec = codecMatch?.[1];
+    let codec = a.get("codecs");
+    if (!codec && body) {
+      for (const { attrs: rAttrs } of iterateOpenTags(body, "Representation")) {
+        const ra = parseXmlAttrs(rAttrs);
+        codec = ra.get("codecs");
+        if (codec) break;
+      }
     }
 
     tracks.push({
       codec,
-      language: language && language !== "und" ? language : undefined,
+      language: normalizeLanguage(a.get("lang")),
     });
   }
-
   return tracks;
 }
 
 function extractSubtitleAdaptationSets(content: string): SubtitleTrack[] {
-  const regex =
-    /<AdaptationSet\b[^>]*?(?:contentType=["']text["']|mimeType=["'](?:application\/ttml\+xml|text\/vtt)[^"']*["'])[^>]*?\/?>/gi;
   const tracks: SubtitleTrack[] = [];
+  for (const { attrs } of iterateOpenTags(content, "AdaptationSet")) {
+    const a = parseXmlAttrs(attrs);
+    const mimeType = a.get("mimeType") ?? "";
+    const contentType = a.get("contentType") ?? "";
+    const isText =
+      contentType === "text" ||
+      mimeType === "application/ttml+xml" ||
+      mimeType.startsWith("text/vtt");
+    if (!isText) continue;
 
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    const tag = match[0];
-    const langMatch = /\blang=["']([^"']+)["']/.exec(tag);
-    const mimeMatch = /mimeType=["']([^"']+)["']/.exec(tag);
-    const codecMatch = /codecs=["']([^"']+)["']/.exec(tag);
-
-    const mimeType = mimeMatch?.[1] ?? "";
-    let codec = codecMatch?.[1];
+    let codec = a.get("codecs");
     if (!codec) {
       if (mimeType.includes("ttml")) codec = "stpp";
       else if (mimeType.includes("vtt")) codec = "wvtt";
     }
 
     tracks.push({
-      language: langMatch?.[1],
+      language: normalizeLanguage(a.get("lang")),
       codec,
     });
   }
-
   return tracks;
 }

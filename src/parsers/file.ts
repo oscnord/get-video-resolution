@@ -1,6 +1,7 @@
 import { MediaParseError } from "../errors";
 import type { GetVideoResolutionOptions, VideoInfo } from "../types";
 import { getAspectRatio } from "../utils/aspect-ratio";
+import { readU32BE } from "../utils/binary";
 import type { FetchOptions } from "../utils/fetch";
 import { buildSignal } from "../utils/fetch";
 import { parseAVI } from "./avi";
@@ -14,8 +15,7 @@ type Format = "mp4" | "webm" | "avi" | "unknown";
 function detectFormat(data: Uint8Array): Format {
   if (data.length < 4) return "unknown";
 
-  const magic =
-    ((data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]) >>> 0;
+  const magic = readU32BE(data, 0);
   if (magic === EBML_MAGIC) return "webm";
 
   if (data.length >= 12) {
@@ -24,8 +24,11 @@ function detectFormat(data: Uint8Array): Format {
     if (riff === "RIFF" && avi === "AVI ") return "avi";
   }
 
+  // Walk top-level boxes looking for an MP4 ftyp/moov/mdat. Cap iterations to
+  // avoid pathological inputs that claim valid box sizes forever.
   let pos = 0;
-  while (pos + 8 <= data.length && pos < 64) {
+  let iterations = 0;
+  while (pos + 8 <= data.length && iterations < 16) {
     const fourcc = String.fromCharCode(
       data[pos + 4],
       data[pos + 5],
@@ -34,14 +37,10 @@ function detectFormat(data: Uint8Array): Format {
     );
     if (fourcc === "ftyp" || fourcc === "moov" || fourcc === "mdat")
       return "mp4";
-    const size =
-      ((data[pos] << 24) |
-        (data[pos + 1] << 16) |
-        (data[pos + 2] << 8) |
-        data[pos + 3]) >>>
-      0;
+    const size = readU32BE(data, pos);
     if (size < 8) break;
     pos += size;
+    iterations++;
   }
 
   return "unknown";
@@ -90,69 +89,63 @@ async function parseFromUrl(
   options: FetchOptions,
 ): Promise<VideoInfo> {
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const { signal, cleanup } = buildSignal(options);
+  const { signal } = buildSignal(options);
 
-  try {
-    const probeResponse = await fetchRange(
-      url,
-      fetchFn,
-      signal,
-      `bytes=0-${PROBE_SIZE - 1}`,
-    );
-    const probeData = new Uint8Array(await probeResponse.arrayBuffer());
+  const probeResponse = await fetchRange(
+    url,
+    fetchFn,
+    signal,
+    `bytes=0-${PROBE_SIZE - 1}`,
+  );
+  const probeData = new Uint8Array(await probeResponse.arrayBuffer());
 
-    // Server ignored Range header — we have the full file
-    if (probeResponse.status !== 206) return parseData(probeData);
+  // Server ignored Range header — we have the full file
+  if (probeResponse.status !== 206) return parseData(probeData);
 
-    const format = detectFormat(probeData);
+  const format = detectFormat(probeData);
 
-    // WebM/MKV/AVI: headers are always at the start
-    if (format === "webm" || format === "avi")
+  // WebM/MKV/AVI: headers are always at the start
+  if (format === "webm" || format === "avi")
+    return parseData(probeData, format);
+
+  // MP4: moov might be at the end of the file
+  if (format === "mp4") {
+    try {
       return parseData(probeData, format);
-
-    // MP4: moov might be at the end of the file
-    if (format === "mp4") {
-      try {
-        return parseData(probeData, format);
-      } catch (error) {
-        if (
-          !(error instanceof MediaParseError) ||
-          !error.message.includes("No moov box")
-        ) {
-          throw error;
-        }
-        const contentRange = probeResponse.headers.get("content-range");
-        const totalMatch = contentRange?.match(/\/(\d+)/);
-        if (!totalMatch) throw error;
-
-        const totalSize = parseInt(totalMatch[1], 10);
-        const start = Math.max(0, totalSize - PROBE_SIZE);
-        const tailResponse = await fetchRange(
-          url,
-          fetchFn,
-          signal,
-          `bytes=${start}-${totalSize - 1}`,
-        );
-        const tailData = new Uint8Array(await tailResponse.arrayBuffer());
-        const moovOffset = findMoovInTail(tailData);
-        if (moovOffset >= 0) {
-          return parseData(tailData.subarray(moovOffset), "mp4");
-        }
-        return parseData(tailData, "mp4");
+    } catch (error) {
+      if (
+        !(error instanceof MediaParseError) ||
+        !error.message.includes("No moov box")
+      ) {
+        throw error;
       }
-    }
+      const contentRange = probeResponse.headers.get("content-range");
+      const totalMatch = contentRange?.match(/\/(\d+)/);
+      if (!totalMatch) throw error;
 
-    // Unknown format with partial data — fall back to full download
-    const fullResponse = await fetchFn(url, { signal });
-    if (!fullResponse.ok) {
-      throw new MediaParseError(
-        `Failed to fetch ${url}: ${fullResponse.status}`,
+      const totalSize = parseInt(totalMatch[1], 10);
+      const start = Math.max(0, totalSize - PROBE_SIZE);
+      const tailResponse = await fetchRange(
+        url,
+        fetchFn,
+        signal,
+        `bytes=${start}-${totalSize - 1}`,
       );
+      const tailData = new Uint8Array(await tailResponse.arrayBuffer());
+      const moovOffset = findMoovInTail(tailData);
+      if (moovOffset >= 0) {
+        return parseData(tailData.subarray(moovOffset), "mp4");
+      }
+      return parseData(tailData, "mp4");
     }
-    return parseData(new Uint8Array(await fullResponse.arrayBuffer()));
-  } finally {
-    cleanup();
   }
+
+  // Unknown format with partial data — fall back to full download
+  const fullResponse = await fetchFn(url, { signal });
+  if (!fullResponse.ok) {
+    throw new MediaParseError(`Failed to fetch ${url}: ${fullResponse.status}`);
+  }
+  return parseData(new Uint8Array(await fullResponse.arrayBuffer()));
 }
 
 function findMoovInProbe(
@@ -160,12 +153,7 @@ function findMoovInProbe(
 ): { offset: number; size: number } | null {
   let pos = 0;
   while (pos + 8 <= data.length) {
-    const size =
-      ((data[pos] << 24) |
-        (data[pos + 1] << 16) |
-        (data[pos + 2] << 8) |
-        data[pos + 3]) >>>
-      0;
+    const size = readU32BE(data, pos);
     if (
       data[pos + 4] === 0x6d &&
       data[pos + 5] === 0x6f &&
@@ -181,7 +169,10 @@ function findMoovInProbe(
 }
 
 function findMoovInTail(data: Uint8Array): number {
-  // Scan backwards for "moov" fourcc at offset +4 from a box header
+  // Scan backwards for a "moov" fourcc whose preceding 4 bytes form a plausible
+  // big-endian box size that fits within the buffer. Iterating last-to-first
+  // matches files with a "moov at end" layout; the size check filters out
+  // false matches where the bytes appear inside payload data.
   for (let i = data.length - 8; i >= 0; i--) {
     if (
       data[i + 4] === 0x6d &&
@@ -189,12 +180,7 @@ function findMoovInTail(data: Uint8Array): number {
       data[i + 6] === 0x6f &&
       data[i + 7] === 0x76
     ) {
-      const size =
-        ((data[i] << 24) |
-          (data[i + 1] << 16) |
-          (data[i + 2] << 8) |
-          data[i + 3]) >>>
-        0;
+      const size = readU32BE(data, i);
       if (size >= 8 && i + size <= data.length) return i;
     }
   }
@@ -252,6 +238,10 @@ async function parseFromLocalFile(path: string): Promise<VideoInfo> {
   }
 }
 
+// Cap for ReadableStream consumption: enough for both head and tail moov scans,
+// far less than naively buffering an arbitrary stream into memory.
+const STREAM_CAP = PROBE_SIZE * 2;
+
 async function toUint8Array(
   source: Buffer | Blob | ReadableStream,
 ): Promise<Uint8Array> {
@@ -264,17 +254,33 @@ async function toUint8Array(
   if (source instanceof ReadableStream) {
     const chunks: Uint8Array[] = [];
     const reader = source.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
+    let total = 0;
+    try {
+      while (total < STREAM_CAP) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        total += value.length;
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore cancel errors
+      }
     }
-    const total = chunks.reduce((sum, c) => sum + c.length, 0);
     const result = new Uint8Array(total);
     let offset = 0;
     for (const chunk of chunks) {
-      result.set(chunk, offset);
-      offset += chunk.length;
+      const remaining = total - offset;
+      if (chunk.length <= remaining) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+      } else {
+        result.set(chunk.subarray(0, remaining), offset);
+        offset += remaining;
+        break;
+      }
     }
     return result;
   }

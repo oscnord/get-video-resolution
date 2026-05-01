@@ -29,6 +29,13 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - uses: oven-sh/setup-bun@v2
       - run: bun install
+      # Refuse to publish a broken build. Mirrors the CI test+build job.
+      - run: bunx biome check --diagnostic-level=error .
+      - run: bunx tsc --noEmit
+      - run: bun test
+      - run: bun run build
+      # Smoke-import the built artefact before publishing.
+      - run: node -e "const m = require('./dist/index.cjs'); if (typeof m.getVideoResolution !== 'function') process.exit(1);"
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

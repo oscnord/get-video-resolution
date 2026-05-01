@@ -4,6 +4,16 @@ import { getAspectRatio } from "../utils/aspect-ratio";
 import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
 import { isHdrCodec } from "../utils/hdr";
+import { normalizeLanguage } from "../utils/manifest";
+import {
+  isAudioCodec,
+  iterateTagLines,
+  parseAttrs,
+  parsePositiveFloat,
+  parsePositiveInt,
+  parseResolution,
+  splitCodecs,
+} from "./hls-helpers";
 
 export async function parseHls(
   source: string,
@@ -13,30 +23,32 @@ export async function parseHls(
   const rawVariants = extractRawVariants(content);
 
   if (rawVariants.length === 0) {
-    throw new ManifestParseError("No RESOLUTION found in HLS manifest");
+    throw new ManifestParseError("No RESOLUTION found in HLS manifest", {
+      context: { format: "hls", source },
+    });
   }
 
   const encrypted = detectEncryption(content) ? true : undefined;
   let audioTracks = extractAudioTracks(content);
   const subtitleTracks = extractSubtitleTracks(content);
 
-  const audioCodec = rawVariants
-    .map((v) => extractAudioCodec(v.codecs))
+  const fallbackAudioCodec = rawVariants
+    .map((v) => splitCodecs(v.codecs).find(isAudioCodec))
     .find(Boolean);
 
   if (audioTracks.length === 0) {
-    if (audioCodec) {
-      audioTracks = [{ codec: audioCodec }];
+    if (fallbackAudioCodec) {
+      audioTracks = [{ codec: fallbackAudioCodec }];
     }
-  } else if (audioCodec) {
+  } else if (fallbackAudioCodec) {
     audioTracks = audioTracks.map((t) => ({
       ...t,
-      codec: t.codec ?? audioCodec,
+      codec: t.codec ?? fallbackAudioCodec,
     }));
   }
 
   return rawVariants.map((raw) => {
-    const videoCodec = extractVideoCodec(raw.codecs);
+    const videoCodec = splitCodecs(raw.codecs).find((c) => !isAudioCodec(c));
     return {
       width: raw.width,
       height: raw.height,
@@ -61,86 +73,42 @@ interface RawVariant {
 }
 
 function extractRawVariants(content: string): RawVariant[] {
-  const regex = /#EXT-X-STREAM-INF:([^\n]+)/g;
   const variants: RawVariant[] = [];
-
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    const line = match[1];
-    const raw = parseStreamInf(line);
-    if (raw) variants.push(raw);
+  for (const line of iterateTagLines(content, "EXT-X-STREAM-INF")) {
+    const attrs = parseAttrs(line);
+    const resolution = parseResolution(attrs.get("RESOLUTION"));
+    if (!resolution) continue;
+    variants.push({
+      width: resolution.width,
+      height: resolution.height,
+      bandwidth: parsePositiveInt(attrs.get("BANDWIDTH")),
+      codecs: attrs.get("CODECS"),
+      frameRate: parsePositiveFloat(attrs.get("FRAME-RATE")),
+    });
   }
-
   return variants;
 }
 
-function parseStreamInf(line: string): RawVariant | null {
-  const resMatch = /RESOLUTION=(\d+)x(\d+)/.exec(line);
-  if (!resMatch) return null;
-
-  const width = parseInt(resMatch[1], 10);
-  const height = parseInt(resMatch[2], 10);
-
-  const bwMatch = /BANDWIDTH=(\d+)/.exec(line);
-  const bandwidth = bwMatch ? parseInt(bwMatch[1], 10) : undefined;
-
-  const codecsMatch = /CODECS="([^"]+)"/.exec(line);
-  const codecs = codecsMatch ? codecsMatch[1] : undefined;
-
-  const frMatch = /FRAME-RATE=([\d.]+)/.exec(line);
-  const frameRate = frMatch ? parseFloat(frMatch[1]) : undefined;
-
-  return { width, height, bandwidth, codecs, frameRate };
-}
-
-function extractVideoCodec(codecs: string | undefined): string | undefined {
-  if (!codecs) return undefined;
-  const parts = codecs.split(",").map((s) => s.trim());
-  return (
-    parts.find(
-      (p) =>
-        !p.startsWith("mp4a.") &&
-        !p.startsWith("ac-3") &&
-        !p.startsWith("ec-3"),
-    ) ?? parts[0]
-  );
-}
-
-function extractAudioCodec(codecs: string | undefined): string | undefined {
-  if (!codecs) return undefined;
-  const parts = codecs.split(",").map((s) => s.trim());
-  return parts.find(
-    (p) =>
-      p.startsWith("mp4a.") ||
-      p.startsWith("ac-3") ||
-      p.startsWith("ec-3") ||
-      p.startsWith("opus") ||
-      p.startsWith("flac"),
-  );
-}
-
 function detectEncryption(content: string): boolean {
-  return /#EXT-X-(?:SESSION-)?KEY:.*METHOD=(?!NONE)\w+/i.test(content);
+  return /#EXT-X-(?:SESSION-)?KEY:[^\n]*METHOD=(?!NONE)\w+/i.test(content);
 }
 
 function extractAudioTracks(content: string): AudioTrack[] {
-  const regex = /#EXT-X-MEDIA:TYPE=AUDIO[^\n]*/g;
   const tracks: AudioTrack[] = [];
   const seen = new Set<string>();
 
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    const line = match[0];
-    const langMatch = /LANGUAGE="([^"]+)"/.exec(line);
-    const chMatch = /CHANNELS="(\d+)"/.exec(line);
+  for (const line of iterateTagLines(content, "EXT-X-MEDIA")) {
+    const attrs = parseAttrs(line);
+    if (attrs.get("TYPE") !== "AUDIO") continue;
 
-    const key = langMatch?.[1] ?? "default";
+    const language = normalizeLanguage(attrs.get("LANGUAGE"));
+    const key = language ?? "default";
     if (seen.has(key)) continue;
     seen.add(key);
 
     tracks.push({
-      language: langMatch?.[1],
-      channels: chMatch ? parseInt(chMatch[1], 10) : undefined,
+      language,
+      channels: parsePositiveInt(attrs.get("CHANNELS")),
     });
   }
 
@@ -148,19 +116,14 @@ function extractAudioTracks(content: string): AudioTrack[] {
 }
 
 function extractSubtitleTracks(content: string): SubtitleTrack[] {
-  const regex = /#EXT-X-MEDIA:TYPE=SUBTITLES[^\n]*/g;
   const tracks: SubtitleTrack[] = [];
-
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    const line = match[0];
-    const langMatch = /LANGUAGE="([^"]+)"/.exec(line);
-
+  for (const line of iterateTagLines(content, "EXT-X-MEDIA")) {
+    const attrs = parseAttrs(line);
+    if (attrs.get("TYPE") !== "SUBTITLES") continue;
     tracks.push({
-      language: langMatch?.[1],
+      language: normalizeLanguage(attrs.get("LANGUAGE")),
       codec: "wvtt",
     });
   }
-
   return tracks;
 }

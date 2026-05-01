@@ -3,6 +3,7 @@ import { parseDash } from "./parsers/dash";
 import { parseFile } from "./parsers/file";
 import { parseHls } from "./parsers/hls";
 import type { GetVideoResolutionOptions, VideoInfo } from "./types";
+import { buildSignal } from "./utils/fetch";
 
 /**
  * Get the resolution of a video from a local file path, URL, or binary data.
@@ -95,12 +96,10 @@ async function sniffContentType(
   options: GetVideoResolutionOptions,
 ): Promise<InputType> {
   const fetchFn = options.fetch ?? globalThis.fetch;
+  const { signal } = buildSignal(options);
 
   try {
-    const response = await fetchFn(url, {
-      method: "HEAD",
-      signal: options.signal,
-    });
+    const response = await fetchFn(url, { method: "HEAD", signal });
     const contentType =
       response.headers.get("content-type")?.toLowerCase() ?? "";
 
@@ -113,6 +112,18 @@ async function sniffContentType(
     if (contentType.includes("application/dash+xml")) {
       return "dash";
     }
+
+    // Generic content-type — try a tiny Range probe and inspect bytes.
+    if (
+      !contentType ||
+      contentType.includes("application/octet-stream") ||
+      contentType.startsWith("text/plain") ||
+      contentType.startsWith("text/xml") ||
+      contentType.startsWith("application/xml")
+    ) {
+      const magic = await sniffMagicBytes(url, fetchFn, signal);
+      if (magic) return magic;
+    }
   } catch {
     // Sniffing failed -- fall through to file parser
   }
@@ -120,18 +131,47 @@ async function sniffContentType(
   return "file";
 }
 
+async function sniffMagicBytes(
+  url: string,
+  fetchFn: typeof globalThis.fetch,
+  signal: AbortSignal | undefined,
+): Promise<InputType | null> {
+  try {
+    const response = await fetchFn(url, {
+      headers: { Range: "bytes=0-2047" },
+      signal,
+    });
+    if (!response.ok && response.status !== 200 && response.status !== 206) {
+      return null;
+    }
+    const buf = new Uint8Array(await response.arrayBuffer());
+    const head = new TextDecoder("utf-8", { fatal: false })
+      .decode(buf.subarray(0, Math.min(buf.length, 2048)))
+      .trimStart();
+    if (head.startsWith("#EXTM3U")) return "hls";
+    if (head.startsWith("<?xml") || /^<MPD\b/.test(head)) return "dash";
+    return "file";
+  } catch {
+    return null;
+  }
+}
+
 function pickVariants(
   variants: VideoInfo[],
   pick: GetVideoResolutionOptions["pick"],
 ): VideoInfo | VideoInfo[] {
   if (pick === "all") return variants;
+  const wantHigher = pick !== "lowest";
+  return variants.reduce((best, current) => {
+    const cmp = compareVariants(current, best);
+    if (wantHigher ? cmp > 0 : cmp < 0) return current;
+    return best;
+  });
+}
 
-  const compareFn =
-    pick === "lowest"
-      ? (a: VideoInfo, b: VideoInfo) =>
-          a.width * a.height < b.width * b.height ? a : b
-      : (a: VideoInfo, b: VideoInfo) =>
-          a.width * a.height > b.width * b.height ? a : b;
-
-  return variants.reduce(compareFn);
+function compareVariants(a: VideoInfo, b: VideoInfo): number {
+  const areaDiff = a.width * a.height - b.width * b.height;
+  if (areaDiff !== 0) return areaDiff;
+  // Tie on resolution: prefer higher bitrate as the proxy for quality.
+  return (a.bitrate ?? 0) - (b.bitrate ?? 0);
 }
