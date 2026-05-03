@@ -5,7 +5,7 @@
 
 Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
 
-Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources.
+Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources (see [Where it runs](#where-it-runs)).
 
 Only reads file headers (not the full file), so it works efficiently on files of any size. For remote URLs, uses HTTP Range requests to fetch just the first 1MB.
 
@@ -148,6 +148,67 @@ const fromBlob = await getVideoResolution(blob);
 // cancels the rest, so streaming a multi-GB file is safe.
 const res = await fetch("https://example.com/big-video.mp4");
 const fromStream = await getVideoResolution(res.body!);
+```
+
+## Where it runs
+
+Anywhere with `fetch` — Node 18+, modern browsers, edge runtimes (Vercel Edge, Cloudflare Workers), Bun, Deno.
+
+| Source | Node | Browser | Edge |
+| --- | --- | --- | --- |
+| Local path (`/path/to/video.mp4`) | ✅ | ❌ | ❌ |
+| `http(s)://` URL | ✅ | ✅ | ✅ |
+| `Buffer` / `Blob` / `ReadableStream` | ✅ | ✅ | ✅ |
+
+In Next.js App Router, call it from a server component so the fetch happens server-side:
+
+```tsx
+// app/video/[id]/page.tsx
+import { getVideoResolution } from "@oscnord/get-video-resolution";
+
+export default async function Page({ params }: { params: { id: string } }) {
+  const info = await getVideoResolution(`https://cdn.example.com/${params.id}.mp4`);
+  return <p>{info.width}×{info.height}</p>;
+}
+```
+
+## Recipes
+
+### Display dimensions for rotated mobile video
+
+The library reports the *stored* `width`/`height` plus a separate `rotation`. A portrait iPhone clip stores `1920×1080` with `rotation: 90`. To get the dimensions you'll actually render:
+
+```typescript
+const info = await getVideoResolution(source);
+const isSideways = info.rotation === 90 || info.rotation === 270;
+const displayWidth = isSideways ? info.height : info.width;
+const displayHeight = isSideways ? info.width : info.height;
+```
+
+### Detecting DRM-protected streams before playback
+
+HLS/DASH variants populate `encrypted: true` when the manifest carries `#EXT-X-KEY` or `<ContentProtection>`. The library can read the manifest but can't decrypt segments — branch early:
+
+```typescript
+const info = await getVideoResolution("https://example.com/master.m3u8");
+if (info.encrypted) {
+  // Hand off to a DRM-aware player (Shaka, hls.js with EME). Don't try
+  // to download or transcode the segments yourself.
+}
+```
+
+### Sources where `duration` is missing
+
+Some MP4s (fragmented, malformed, mid-write) and live HLS/DASH playlists return a `VideoInfo` without `duration`. Treat it as unknown rather than zero:
+
+```typescript
+const info = await getVideoResolution(source);
+const knownDuration = info.duration ?? null;
+if (knownDuration === null) {
+  // For HLS this often means a live playlist; for MP4, the moov box
+  // didn't carry an mvhd duration. Decide whether to reject the upload,
+  // probe with a player, or accept without a duration display.
+}
 ```
 
 ## API
