@@ -5,7 +5,7 @@
 
 Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
 
-Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources (see [Usage in browsers and SSR](#usage-in-browsers-and-ssr)).
+Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources (see [Where it runs](#where-it-runs)).
 
 Only reads file headers (not the full file), so it works efficiently on files of any size. For remote URLs, uses HTTP Range requests to fetch just the first 1MB.
 
@@ -150,21 +150,17 @@ const res = await fetch("https://example.com/big-video.mp4");
 const fromStream = await getVideoResolution(res.body!);
 ```
 
-## Usage in browsers and SSR
+## Where it runs
 
-The library uses `globalThis.fetch` and never touches `window`, `document`, or `navigator`. It runs in any environment that has `fetch`: Node 18+, modern browsers, edge runtimes (Vercel Edge, Cloudflare Workers), Bun, and Deno.
+Anywhere with `fetch` — Node 18+, modern browsers, edge runtimes (Vercel Edge, Cloudflare Workers), Bun, Deno.
 
-**Source types by environment:**
-
-| Source | Node | Browser | Edge runtimes |
+| Source | Node | Browser | Edge |
 | --- | --- | --- | --- |
 | Local path (`/path/to/video.mp4`) | ✅ | ❌ | ❌ |
 | `http(s)://` URL | ✅ | ✅ | ✅ |
 | `Buffer` / `Blob` / `ReadableStream` | ✅ | ✅ | ✅ |
 
-Local paths use `node:fs` and only resolve in Node. URL, Blob, and stream sources work everywhere.
-
-**Next.js (App Router).** Prefer calling from a server component, route handler, or server action — it keeps the user's bandwidth free and avoids CORS issues with arbitrary CDNs.
+In Next.js App Router, call it from a server component so the fetch happens server-side:
 
 ```tsx
 // app/video/[id]/page.tsx
@@ -175,10 +171,6 @@ export default async function Page({ params }: { params: { id: string } }) {
   return <p>{info.width}×{info.height}</p>;
 }
 ```
-
-If you do call it from a `"use client"` component, gate it behind a user action — otherwise it'll execute during SSR hydration and fetch from the wrong origin.
-
-**Tree-shaking.** The package is ESM-first with a CJS fallback. Importing only `getVideoResolution` lets bundlers drop the error classes you don't use.
 
 ## Recipes
 
