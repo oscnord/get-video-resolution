@@ -1,5 +1,6 @@
 import { MediaParseError } from "../errors";
 import type { AudioTrack, ParsedMetadata, SubtitleTrack } from "../types";
+import { getAspectRatio } from "../utils/aspect-ratio";
 import {
   readFourCC,
   readI32BE as readI32,
@@ -7,7 +8,7 @@ import {
   readU32BE as readU32,
   readU64BE as readU64,
 } from "../utils/binary";
-import { isDefiniteHdrCodec } from "../utils/hdr";
+import { isDefiniteHdrCodec, isHdrTransfer } from "../utils/hdr";
 
 interface CodecInfo {
   codec: string;
@@ -186,46 +187,86 @@ function parseStts(
   timescale: number,
 ): number | undefined {
   const start = box.offset + box.headerSize;
-  // version(1) + flags(3) + entry_count(4) + first entry: sample_count(4) + sample_delta(4)
-  if (start + 16 > data.length) return undefined;
+  const end = Math.min(box.offset + box.size, data.length);
+  // version(1) + flags(3) + entry_count(4)
+  if (start + 8 > end) return undefined;
 
   const entryCount = readU32(data, start + 4);
-  if (entryCount === 0) return undefined;
 
-  const sampleDelta = readU32(data, start + 12);
-  if (sampleDelta === 0) return undefined;
+  let samples = 0;
+  let ticks = 0;
+  for (let i = 0; i < entryCount; i++) {
+    const entry = start + 8 + i * 8;
+    if (entry + 8 > end) break;
+    const count = readU32(data, entry);
+    samples += count;
+    ticks += count * readU32(data, entry + 4);
+  }
 
-  return timescale / sampleDelta;
+  if (samples === 0 || ticks === 0) return undefined;
+
+  return (samples * timescale) / ticks;
+}
+
+// The first sample entry, bounded to the stsd box. Callers must still check
+// `size` before reading fields past the 8-byte box header.
+function firstSampleEntry(data: Uint8Array, stsd: Box): Box | null {
+  const start = stsd.offset + stsd.headerSize;
+  const stsdEnd = Math.min(stsd.offset + stsd.size, data.length);
+  // version(1) + flags(3) + entry_count(4) = 8 bytes, then the first entry
+  if (start + 8 > stsdEnd) return null;
+  if (readU32(data, start + 4) === 0) return null;
+
+  const entry = readBoxHeader(data, start + 8);
+  if (!entry || entry.size < 8 || entry.offset + entry.size > stsdEnd)
+    return null;
+
+  return entry;
 }
 
 function parseDimensions(
   data: Uint8Array,
   stsd: Box,
 ): { width: number; height: number; fourcc: string } | null {
-  const start = stsd.offset + stsd.headerSize;
-  // version(1) + flags(3) + entry_count(4) = 8 bytes, then first sample entry
-  const entryStart = start + 8;
-
-  if (entryStart + 36 > data.length) return null;
-
-  const entryBox = readBoxHeader(data, entryStart);
-  if (!entryBox) return null;
+  const entry = firstSampleEntry(data, stsd);
+  if (!entry || entry.size < 36) return null;
 
   return {
-    width: readU16(data, entryStart + 32),
-    height: readU16(data, entryStart + 34),
-    fourcc: entryBox.type,
+    width: readU16(data, entry.offset + 32),
+    height: readU16(data, entry.offset + 34),
+    fourcc: entry.type,
   };
 }
 
+function parsePasp(
+  data: Uint8Array,
+  stsd: Box,
+): { hSpacing: number; vSpacing: number } | null {
+  const entry = firstSampleEntry(data, stsd);
+  if (!entry || entry.size < 86) return null;
+
+  const pasp = findBox(
+    data,
+    entry.offset + 86,
+    entry.offset + entry.size,
+    "pasp",
+  );
+  if (!pasp || pasp.size < 16) return null;
+
+  const hSpacing = readU32(data, pasp.offset + pasp.headerSize);
+  const vSpacing = readU32(data, pasp.offset + pasp.headerSize + 4);
+  if (hSpacing === 0 || vSpacing === 0) return null;
+
+  return { hSpacing, vSpacing };
+}
+
 function parseColr(data: Uint8Array, stsd: Box): boolean | null {
-  const entryStart = stsd.offset + stsd.headerSize + 8;
-  const entryBox = readBoxHeader(data, entryStart);
+  const entryBox = firstSampleEntry(data, stsd);
   if (!entryBox || entryBox.size < 86) return null;
 
   // Child boxes of visual sample entry start at +86 from entry box start
-  const childrenStart = entryStart + 86;
-  const childrenEnd = entryStart + entryBox.size;
+  const childrenStart = entryBox.offset + 86;
+  const childrenEnd = entryBox.offset + entryBox.size;
 
   const colr = findBox(data, childrenStart, childrenEnd, "colr");
   if (!colr) return null;
@@ -236,9 +277,7 @@ function parseColr(data: Uint8Array, stsd: Box): boolean | null {
   const colrType = readFourCC(data, colrData);
   if (colrType !== "nclx") return null;
 
-  const transferCharacteristics = readU16(data, colrData + 6);
-  // PQ (HDR10) = 16, HLG = 18
-  return transferCharacteristics === 16 || transferCharacteristics === 18;
+  return isHdrTransfer(readU16(data, colrData + 6));
 }
 
 function buildAvcCodecString(data: Uint8Array, box: Box): string {
@@ -337,12 +376,11 @@ function hex(n: number): string {
 }
 
 function parseCodecInfo(data: Uint8Array, stsd: Box): CodecInfo {
-  const entryStart = stsd.offset + stsd.headerSize + 8;
-  const entryBox = readBoxHeader(data, entryStart);
+  const entryBox = firstSampleEntry(data, stsd);
   if (!entryBox || entryBox.size < 86) return { codec: "unknown" };
 
-  const childrenStart = entryStart + 86;
-  const childrenEnd = entryStart + entryBox.size;
+  const childrenStart = entryBox.offset + 86;
+  const childrenEnd = entryBox.offset + entryBox.size;
   const fourcc = entryBox.type;
 
   if (fourcc === "avc1" || fourcc === "avc3") {
@@ -375,8 +413,7 @@ function parseAudioSampleEntry(
   data: Uint8Array,
   stsd: Box,
 ): { codec: string; channels: number } | null {
-  const entryStart = stsd.offset + stsd.headerSize + 8;
-  const entryBox = readBoxHeader(data, entryStart);
+  const entryBox = firstSampleEntry(data, stsd);
   if (!entryBox) return null;
 
   // Audio sample entry layout:
@@ -385,19 +422,25 @@ function parseAudioSampleEntry(
   //   +14..15 data_reference_index
   //   +16..17 version (QuickTime sound sample description; 0 in ISO BMFF)
   //
-  // For version 0/1 the channelcount lives at body+16 (= entryStart+24) as
-  // a 16-bit BE int. For QuickTime v2 that field is a sentinel (always 3),
-  // and the real channel count is a 32-bit BE int at body+40 (= entryStart+48).
-  if (entryStart + 18 > data.length) return null;
-  const version = readU16(data, entryStart + 16);
+  // For version 0/1 the channelcount lives at body+16 (= entry+24) as a 16-bit
+  // BE int. For QuickTime v2 that field is a sentinel (always 3), and the real
+  // channel count is a 32-bit BE int at body+40 (= entry+48).
+  if (entryBox.size < 18) return null;
+  const version = readU16(data, entryBox.offset + 16);
 
   if (version === 2) {
-    if (entryStart + 52 > data.length) return null;
-    return { codec: entryBox.type, channels: readU32(data, entryStart + 48) };
+    if (entryBox.size < 52) return null;
+    return {
+      codec: entryBox.type,
+      channels: readU32(data, entryBox.offset + 48),
+    };
   }
 
-  if (entryStart + 26 > data.length) return null;
-  return { codec: entryBox.type, channels: readU16(data, entryStart + 24) };
+  if (entryBox.size < 26) return null;
+  return {
+    codec: entryBox.type,
+    channels: readU16(data, entryBox.offset + 24),
+  };
 }
 
 function parseAudioTrak(data: Uint8Array, trak: Box): AudioTrack {
@@ -421,9 +464,7 @@ function parseSubtitleEntryCodec(
   data: Uint8Array,
   stsd: Box,
 ): string | undefined {
-  const entryStart = stsd.offset + stsd.headerSize + 8;
-  const entryBox = readBoxHeader(data, entryStart);
-  return entryBox?.type;
+  return firstSampleEntry(data, stsd)?.type;
 }
 
 function parseSubtitleTrak(data: Uint8Array, trak: Box): SubtitleTrack {
@@ -512,9 +553,14 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const audioTracks = audioTraks.map((t) => parseAudioTrak(data, t));
   const subtitleTracks = subtitleTraks.map((t) => parseSubtitleTrak(data, t));
 
+  const pasp = parsePasp(data, stsd);
+
   return {
     width: dims.width,
     height: dims.height,
+    aspectRatio: pasp
+      ? getAspectRatio(dims.width * pasp.hSpacing, dims.height * pasp.vSpacing)
+      : undefined,
     duration,
     codec,
     framerate: framerate ? Math.round(framerate * 1000) / 1000 : undefined,

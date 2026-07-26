@@ -7,9 +7,18 @@ export function normalizeLanguage(
   return trimmed;
 }
 
-export function pickCodec(
-  codecs: string[],
-  match: (c: string) => boolean,
-): string | undefined {
-  return codecs.find(match) ?? codecs[0];
+export function parsePositiveInt(
+  value: string | undefined,
+): number | undefined {
+  if (!value) return undefined;
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+export function parsePositiveFloat(
+  value: string | undefined,
+): number | undefined {
+  if (!value) return undefined;
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }

@@ -117,7 +117,12 @@ interface StreamHeader {
   dwLength: number;
 }
 
-function parseStrh(data: Uint8Array, offset: number): StreamHeader {
+// Fields read reach +36 (dwLength). A shorter chunk would read into whatever
+// chunk follows, so reject it outright.
+function parseStrh(data: Uint8Array, chunk: ChunkHeader): StreamHeader | null {
+  const offset = chunk.offset + chunk.headerSize;
+  if (chunk.size < 36 || offset + 36 > data.length) return null;
+
   return {
     fccType: readFourCC(data, offset),
     fccHandler: readFourCC(data, offset + 4),
@@ -133,10 +138,21 @@ interface BitmapInfo {
   biCompression: string;
 }
 
-function parseStrf(data: Uint8Array, offset: number): BitmapInfo {
+// BITMAPINFOHEADER is 40 bytes; the fields read reach +20.
+function parseStrf(data: Uint8Array, chunk: ChunkHeader): BitmapInfo | null {
+  const offset = chunk.offset + chunk.headerSize;
+  if (chunk.size < 20 || offset + 20 > data.length) return null;
+
+  // Both are signed LONGs, but only biHeight has a negative meaning: it marks
+  // a top-down bitmap. A negative biWidth is just malformed, so reject it and
+  // let the avih fallback supply the dimensions.
+  const biWidth = readU32LE(data, offset + 4) | 0;
+  const biHeight = readU32LE(data, offset + 8) | 0;
+  if (biWidth <= 0 || biHeight === 0) return null;
+
   return {
-    biWidth: readU32LE(data, offset + 4),
-    biHeight: readU32LE(data, offset + 8),
+    biWidth,
+    biHeight: Math.abs(biHeight),
     biCompression: readFourCC(data, offset + 16),
   };
 }
@@ -207,9 +223,8 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
         const strlEnd = pos + 8 + chunk.size;
 
         const strhChunk = findChunk(data, strlStart, strlEnd, "strh");
-        if (strhChunk) {
-          const strh = parseStrh(data, strhChunk.offset + 8);
-
+        const strh = strhChunk ? parseStrh(data, strhChunk) : null;
+        if (strh) {
           if (strh.fccType === "vids" && !videoFound) {
             codec = mapCodec(strh.fccHandler);
             totalFrames = strh.dwLength;
@@ -219,10 +234,10 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
             }
 
             const strfChunk = findChunk(data, strlStart, strlEnd, "strf");
-            if (strfChunk) {
-              const strf = parseStrf(data, strfChunk.offset + 8);
+            const strf = strfChunk ? parseStrf(data, strfChunk) : null;
+            if (strf) {
               width = strf.biWidth;
-              height = Math.abs(strf.biHeight | 0); // can be negative (top-down)
+              height = strf.biHeight;
 
               // Prefer compression fourcc if handler was generic
               if (codec === "" || codec === "\0\0\0\0" || codec === "vids") {
@@ -261,9 +276,10 @@ export function parseAVI(data: Uint8Array): ParsedMetadata {
     });
   }
 
+  // Duration uses the unrounded rate: at 30000/1001 the rounded 29.97 drifts
+  // by roughly a fifth of a second across a two-hour file.
+  const duration = fps && totalFrames > 0 ? totalFrames / fps : undefined;
   const framerate = fps ? Math.round(fps * 1000) / 1000 : undefined;
-  const duration =
-    framerate && totalFrames > 0 ? totalFrames / framerate : undefined;
 
   return {
     width,

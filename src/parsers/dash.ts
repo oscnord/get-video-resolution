@@ -3,8 +3,8 @@ import type { AudioTrack, SubtitleTrack, VideoInfo } from "../types";
 import { getAspectRatio } from "../utils/aspect-ratio";
 import type { FetchOptions } from "../utils/fetch";
 import { loadManifest } from "../utils/fetch";
-import { isHdrCodec } from "../utils/hdr";
-import { normalizeLanguage } from "../utils/manifest";
+import { isDefiniteHdrCodec, isHdrTransfer } from "../utils/hdr";
+import { normalizeLanguage, parsePositiveInt } from "../utils/manifest";
 import {
   iterateOpenTags,
   parseDashFrameRate,
@@ -53,32 +53,77 @@ function extractRepresentations(
   duration: number | undefined,
 ): VideoInfo[] {
   const representations: VideoInfo[] = [];
-  for (const { attrs } of iterateOpenTags(content, "Representation")) {
-    const a = parseXmlAttrs(attrs);
-    const widthStr = a.get("width");
-    const heightStr = a.get("height");
-    if (!widthStr || !heightStr) continue;
-    const width = parseInt(widthStr, 10);
-    const height = parseInt(heightStr, 10);
-    if (!(width > 0 && height > 0)) continue;
 
-    const bandwidth = a.get("bandwidth");
-    const bitrate = bandwidth ? parseInt(bandwidth, 10) : undefined;
-    const codec = a.get("codecs");
-    const framerate = parseDashFrameRate(a.get("frameRate"));
+  for (const { attrs, body } of iterateOpenTags(content, "AdaptationSet")) {
+    const set = parseXmlAttrs(attrs);
+    // Common attributes may sit on the AdaptationSet with the Representation
+    // carrying only id/bandwidth — the DASH-IF live profile packages this way.
+    const inherited = (key: string, rep: Map<string, string>) =>
+      rep.get(key) ?? set.get(key);
+    const setHdr = parseCicpHdr(body ?? "");
 
-    representations.push({
-      width,
-      height,
-      bitrate,
-      codec,
-      framerate,
-      duration,
-      aspectRatio: getAspectRatio(width, height),
-      hdr: isHdrCodec(codec),
-    });
+    for (const { attrs: repAttrs, body: repBody } of iterateOpenTags(
+      body ?? "",
+      "Representation",
+    )) {
+      const rep = parseXmlAttrs(repAttrs);
+      const width = parsePositiveInt(inherited("width", rep));
+      const height = parsePositiveInt(inherited("height", rep));
+      if (!width || !height) continue;
+
+      const codec = inherited("codecs", rep);
+      const bitrate = parsePositiveInt(rep.get("bandwidth"));
+      const rate = parseDashFrameRate(inherited("frameRate", rep));
+      const framerate = rate ? Math.round(rate * 1000) / 1000 : undefined;
+      const sar = parseRatio(inherited("sar", rep));
+
+      representations.push({
+        width,
+        height,
+        bitrate,
+        codec,
+        framerate,
+        duration,
+        aspectRatio: sar
+          ? getAspectRatio(width * sar[0], height * sar[1])
+          : (parseRatioString(inherited("par", rep)) ??
+            getAspectRatio(width, height)),
+        hdr: parseCicpHdr(repBody ?? "") ?? setHdr ?? isDefiniteHdrCodec(codec),
+      });
+    }
   }
+
   return representations;
+}
+
+// urn:mpeg:mpegB:cicp:TransferCharacteristics on an Essential/Supplemental
+// property is the DASH equivalent of the MP4 `colr` box. Absent -> null so the
+// caller can fall back rather than treating "no descriptor" as "not HDR".
+function parseCicpHdr(scope: string): boolean | null {
+  for (const tag of ["EssentialProperty", "SupplementalProperty"]) {
+    for (const { attrs } of iterateOpenTags(scope, tag)) {
+      const a = parseXmlAttrs(attrs);
+      if (!a.get("schemeIdUri")?.endsWith("cicp:TransferCharacteristics"))
+        continue;
+      const transfer = parsePositiveInt(a.get("value"));
+      if (transfer !== undefined) return isHdrTransfer(transfer);
+    }
+  }
+  return null;
+}
+
+function parseRatio(value: string | undefined): [number, number] | null {
+  if (!value) return null;
+  const match = /^(\d+)[:/](\d+)$/.exec(value.trim());
+  if (!match) return null;
+  const num = parseInt(match[1], 10);
+  const den = parseInt(match[2], 10);
+  return num > 0 && den > 0 ? [num, den] : null;
+}
+
+function parseRatioString(value: string | undefined): string | undefined {
+  const ratio = parseRatio(value);
+  return ratio ? getAspectRatio(ratio[0], ratio[1]) : undefined;
 }
 
 function detectEncryption(content: string): boolean {

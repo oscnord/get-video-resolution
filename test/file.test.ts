@@ -498,11 +498,13 @@ describe("Rotation", () => {
     const mp4 = buildMP4WithRotation(a, b);
     const result = parseMP4(mp4);
     expect(result.rotation).toBe(degrees);
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
   });
 });
 
 function buildMP4WithRotation(a: number, b: number): Uint8Array {
-  const data = new Uint8Array(256);
+  const data = new Uint8Array(512);
   let pos = 0;
 
   const moovStart = pos;
@@ -556,10 +558,7 @@ function buildMP4WithRotation(a: number, b: number): Uint8Array {
   const entryStart = pos;
   writeU32(data, pos, 86);
   writeFourCC(data, pos + 4, "avc1");
-  data[entryStart + 24] = 0x07;
-  data[entryStart + 25] = 0x80;
-  data[entryStart + 26] = 0x04;
-  data[entryStart + 27] = 0x38;
+  writeU32(data, entryStart + 32, 0x07800438);
   pos = stsdStart + 8 + 8 + 86;
 
   writeU32(data, stblStart, pos - stblStart);

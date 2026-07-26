@@ -64,7 +64,8 @@ function parseData(data: Uint8Array, format?: Format): VideoInfo {
   const result = parser(data);
   return {
     ...result,
-    aspectRatio: getAspectRatio(result.width, result.height),
+    aspectRatio:
+      result.aspectRatio ?? getAspectRatio(result.width, result.height),
   };
 }
 

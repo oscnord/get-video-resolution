@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeLanguage, pickCodec } from "../src/utils/manifest";
+import {
+  normalizeLanguage,
+  parsePositiveFloat,
+  parsePositiveInt,
+} from "../src/utils/manifest";
 
 describe("manifest helpers", () => {
   describe("normalizeLanguage", () => {
@@ -19,21 +23,29 @@ describe("manifest helpers", () => {
     });
   });
 
-  describe("pickCodec", () => {
-    test("returns first match", () => {
-      expect(
-        pickCodec(["avc1.64", "mp4a.40.2"], (c) => c.startsWith("mp4a")),
-      ).toBe("mp4a.40.2");
+  describe("parsePositiveInt", () => {
+    test("parses positive integers", () => {
+      expect(parsePositiveInt("1920")).toBe(1920);
     });
 
-    test("falls back to first when no match", () => {
-      expect(pickCodec(["avc1.64", "hvc1"], (c) => c.startsWith("av01"))).toBe(
-        "avc1.64",
-      );
+    test("rejects zero, negatives, and non-numbers", () => {
+      expect(parsePositiveInt("0")).toBeUndefined();
+      expect(parsePositiveInt("-5")).toBeUndefined();
+      expect(parsePositiveInt("abc")).toBeUndefined();
+      expect(parsePositiveInt(undefined)).toBeUndefined();
+    });
+  });
+
+  describe("parsePositiveFloat", () => {
+    test("parses fractional values", () => {
+      expect(parsePositiveFloat("29.97")).toBe(29.97);
     });
 
-    test("returns undefined for empty list", () => {
-      expect(pickCodec([], () => true)).toBeUndefined();
+    test("rejects zero, negatives, and non-numbers", () => {
+      expect(parsePositiveFloat("0")).toBeUndefined();
+      expect(parsePositiveFloat("-1.5")).toBeUndefined();
+      expect(parsePositiveFloat("abc")).toBeUndefined();
+      expect(parsePositiveFloat(undefined)).toBeUndefined();
     });
   });
 });

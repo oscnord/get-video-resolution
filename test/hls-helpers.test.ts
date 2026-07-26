@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   isAudioCodec,
+  isTextCodec,
   iterateTagLines,
   parseAttrs,
-  parsePositiveFloat,
-  parsePositiveInt,
   parseResolution,
   splitCodecs,
 } from "../src/parsers/hls-helpers";
@@ -100,17 +99,15 @@ describe("HLS helpers", () => {
     });
   });
 
-  describe("parsePositiveInt / parsePositiveFloat", () => {
-    test("returns positive integers", () => {
-      expect(parsePositiveInt("42")).toBe(42);
-      expect(parsePositiveInt("0")).toBeUndefined();
-      expect(parsePositiveInt(undefined)).toBeUndefined();
+  describe("isTextCodec", () => {
+    test("recognizes IMSC and WebVTT", () => {
+      expect(isTextCodec("stpp.ttml.im1t")).toBe(true);
+      expect(isTextCodec("wvtt")).toBe(true);
     });
 
-    test("returns positive floats", () => {
-      expect(parsePositiveFloat("29.97")).toBe(29.97);
-      expect(parsePositiveFloat("0")).toBeUndefined();
-      expect(parsePositiveFloat(undefined)).toBeUndefined();
+    test("rejects video and audio codecs", () => {
+      expect(isTextCodec("avc1.640028")).toBe(false);
+      expect(isTextCodec("mp4a.40.2")).toBe(false);
     });
   });
 });

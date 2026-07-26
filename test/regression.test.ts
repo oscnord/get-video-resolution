@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { MediaParseError, NetworkError } from "../src/errors";
+import { parseAVI } from "../src/parsers/avi";
 import { parseDash } from "../src/parsers/dash";
 import { parseFile } from "../src/parsers/file";
 import { parseMP4 } from "../src/parsers/mp4";
@@ -200,6 +201,272 @@ describe("regression: QuickTime v2 audio sample description channels (real-world
   });
 });
 
+describe("WebM DisplayWidth/DisplayHeight", () => {
+  test("width/height stay the coded pixel dimensions", () => {
+    const info = parseWebM(buildWebm(1440, 1080, [1920, 1080]));
+    expect(info.width).toBe(1440);
+    expect(info.height).toBe(1080);
+    expect(info.aspectRatio).toBe("16:9");
+  });
+
+  test("a bare display ratio is not mistaken for pixel dimensions", () => {
+    // Under DisplayUnit 3 the display elements hold the ratio itself. Treating
+    // them as pixel dimensions would report a 16x9 video.
+    const info = parseWebM(buildWebm(1440, 1080, [16, 9]));
+    expect(info.width).toBe(1440);
+    expect(info.aspectRatio).toBe("16:9");
+  });
+
+  test("absent display elements leave aspectRatio to the caller", () => {
+    const info = parseWebM(buildWebm(1280, 720));
+    expect(info.width).toBe(1280);
+    expect(info.aspectRatio).toBeUndefined();
+  });
+
+  test("parseData derives the ratio from pixel dimensions as a fallback", async () => {
+    const info = await parseFile(Buffer.from(buildWebm(1280, 720)), {});
+    expect(info.aspectRatio).toBe("16:9");
+  });
+});
+
+describe("pasp: anamorphic display aspect ratio", () => {
+  test("1440x1080 with 4:3 pasp reports 16:9, not 4:3", () => {
+    const info = parseMP4(buildMp4(1440, 1080, { pasp: [4, 3] }));
+    expect(info.width).toBe(1440);
+    expect(info.height).toBe(1080);
+    expect(info.aspectRatio).toBe("16:9");
+  });
+
+  test("square pasp leaves the ratio unchanged", () => {
+    expect(parseMP4(buildMp4(1920, 1080, { pasp: [1, 1] })).aspectRatio).toBe(
+      "16:9",
+    );
+  });
+
+  test("zero spacing is ignored rather than dividing by zero", () => {
+    expect(
+      parseMP4(buildMp4(1920, 1080, { pasp: [0, 1] })).aspectRatio,
+    ).toBeUndefined();
+  });
+
+  test("no pasp box leaves aspectRatio for the caller to derive", () => {
+    expect(parseMP4(buildMp4(1920, 1080)).aspectRatio).toBeUndefined();
+  });
+
+  test("parseData falls back to pixel dimensions when pasp is absent", async () => {
+    const info = await parseFile(Buffer.from(buildMp4(1920, 1080)), {});
+    expect(info.aspectRatio).toBe("16:9");
+  });
+
+  test("parseData prefers the parser's display ratio over pixel dimensions", async () => {
+    const info = await parseFile(
+      Buffer.from(buildMp4(1440, 1080, { pasp: [4, 3] })),
+      {},
+    );
+    expect(info.aspectRatio).toBe("16:9");
+  });
+});
+
+describe("stts: framerate averages every entry", () => {
+  test("single-entry (CFR) rate is unchanged", () => {
+    // timescale 1000, 300 samples of 40 ticks => 25 fps
+    const info = parseMP4(buildMp4(1920, 1080, { stts: [[300, 40]] }));
+    expect(info.framerate).toBe(25);
+  });
+
+  test("29.97 drop-frame timing still rounds correctly", () => {
+    const info = parseMP4(
+      buildMp4(1920, 1080, { timescale: 30000, stts: [[300, 1001]] }),
+    );
+    expect(info.framerate).toBe(29.97);
+  });
+
+  test("VFR averages across entries instead of taking the first", () => {
+    // 100 samples @ 25fps + 100 @ 50fps => 200 samples over 6s => 33.333 fps.
+    // Reading only the first entry would report 25.
+    const info = parseMP4(
+      buildMp4(1920, 1080, {
+        stts: [
+          [100, 40],
+          [100, 20],
+        ],
+      }),
+    );
+    expect(info.framerate).toBe(33.333);
+  });
+
+  test("a trailing odd-delta sample barely moves the average", () => {
+    const info = parseMP4(
+      buildMp4(1920, 1080, {
+        stts: [
+          [299, 40],
+          [1, 1],
+        ],
+      }),
+    );
+    expect(info.framerate).toBeCloseTo(25.08, 2);
+  });
+
+  test("entry_count of zero yields no framerate", () => {
+    expect(
+      parseMP4(buildMp4(1920, 1080, { stts: [] })).framerate,
+    ).toBeUndefined();
+  });
+
+  test("entries truncated by a short buffer use what is readable", () => {
+    const full = buildMp4(1920, 1080, {
+      stts: [
+        [100, 40],
+        [100, 20],
+      ],
+    });
+    // Drop the second stts entry; the declared entry_count still says 2.
+    const info = parseMP4(full.subarray(0, full.length - 8));
+    expect(info.framerate).toBe(25);
+  });
+});
+
+describe("stsd: malformed sample entries are rejected, not misread", () => {
+  test("entry_count of zero does not read the following sibling box", () => {
+    // Without the guard the parser reads the stts box header as a sample
+    // entry, yielding codec "stts" and garbage dimensions.
+    expect(() => parseMP4(buildMp4(1920, 1080, { stsdEntryCount: 0 }))).toThrow(
+      "Could not read video dimensions from stsd",
+    );
+  });
+
+  test("a sample entry declaring a size past the stsd box is rejected", () => {
+    expect(() => parseMP4(buildMp4(1920, 1080, { entrySizeDelta: 8 }))).toThrow(
+      "Could not read video dimensions from stsd",
+    );
+  });
+
+  test("an audio stsd with entry_count zero yields no codec or channels", () => {
+    const mp4a = box("mp4a", [
+      ...u32(0),
+      ...u16(0),
+      ...u16(1),
+      ...u32(0),
+      ...u32(0),
+      ...u16(2),
+      ...u16(16),
+      ...u16(0),
+      ...u16(0),
+      ...u32(0x00010000),
+    ]);
+    const stsd = box("stsd", [...u32(0), ...u32(0), ...mp4a]);
+    const data = new Uint8Array(
+      box("moov", [...videoTrak1080p(), ...audioTrak(stsd)]),
+    );
+    const track = parseMP4(data).audioTracks?.[0];
+    expect(track?.codec).toBeUndefined();
+    expect(track?.channels).toBeUndefined();
+  });
+});
+
+interface Mp4Opts {
+  pasp?: [number, number];
+  stts?: Array<[number, number]>;
+  timescale?: number;
+  stsdEntryCount?: number;
+  entrySizeDelta?: number;
+}
+
+function buildMp4(
+  width: number,
+  height: number,
+  opts: Mp4Opts = {},
+): Uint8Array {
+  const hvcC = box(
+    "hvcC",
+    [1, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 120, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  );
+  const pasp = opts.pasp
+    ? box("pasp", [...u32(opts.pasp[0]), ...u32(opts.pasp[1])])
+    : [];
+  const hvc1 = box("hvc1", [
+    ...u32(0),
+    ...u16(0),
+    ...u16(1),
+    ...u32(0),
+    ...u32(0),
+    ...u32(0),
+    ...u32(0),
+    ...u16(width),
+    ...u16(height),
+    ...u32(0x00480000),
+    ...u32(0x00480000),
+    ...u32(0),
+    ...u16(1),
+    ...new Array(32).fill(0),
+    ...u16(24),
+    ...u16(0xffff),
+    ...hvcC,
+    ...pasp,
+  ]);
+  if (opts.entrySizeDelta) {
+    hvc1.splice(0, 4, ...u32(hvc1.length + opts.entrySizeDelta));
+  }
+
+  const entries = opts.stts ?? [[300, 40]];
+  const stts = box("stts", [
+    ...u32(0),
+    ...u32(entries.length),
+    ...entries.flatMap(([count, delta]) => [...u32(count), ...u32(delta)]),
+  ]);
+
+  const stsd = box("stsd", [
+    ...u32(0),
+    ...u32(opts.stsdEntryCount ?? 1),
+    ...hvc1,
+  ]);
+  const trak = box(
+    "trak",
+    videoMdia("vide", [...stsd, ...stts], opts.timescale),
+  );
+  return new Uint8Array(box("moov", trak));
+}
+
+const vint = (n: number): number[] =>
+  n < 0x80 ? [0x80 | n] : [0x40 | (n >> 8), n & 0xff];
+const ebml = (id: number[], payload: number[]): number[] => [
+  ...id,
+  ...vint(payload.length),
+  ...payload,
+];
+const ebmlUint = (id: number[], value: number): number[] =>
+  ebml(id, value <= 0xff ? [value] : [(value >> 8) & 0xff, value & 0xff]);
+
+function buildWebm(
+  pixelWidth: number,
+  pixelHeight: number,
+  display?: [number, number],
+): Uint8Array {
+  const video = ebml(
+    [0xe0],
+    [
+      ...ebmlUint([0xb0], pixelWidth),
+      ...ebmlUint([0xba], pixelHeight),
+      ...(display
+        ? [
+            ...ebmlUint([0x54, 0xb0], display[0]),
+            ...ebmlUint([0x54, 0xba], display[1]),
+          ]
+        : []),
+    ],
+  );
+  const trackEntry = ebml([0xae], [...ebmlUint([0x83], 1), ...video]);
+  const tracks = ebml([0x16, 0x54, 0xae, 0x6b], trackEntry);
+  return new Uint8Array([
+    0x1a,
+    0x45,
+    0xdf,
+    0xa3,
+    0x80, // EBML header, empty body
+    ...ebml([0x18, 0x53, 0x80, 0x67], tracks),
+  ]);
+}
+
 function buildOverflowingWebm(): Uint8Array {
   // Hand-rolled EBML containing a Channels element whose declared size (7
   // bytes) exceeds MAX_VINT_SIZE (6). readUint must throw rather than overflow.
@@ -229,7 +496,11 @@ const box = (type: string, body: number[]): number[] => [
   ...body,
 ];
 
-function videoMdia(handler: string, children: number[]): number[] {
+function videoMdia(
+  handler: string,
+  children: number[],
+  timescale = 1000,
+): number[] {
   const mdhd = box("mdhd", [
     0,
     0,
@@ -237,7 +508,7 @@ function videoMdia(handler: string, children: number[]): number[] {
     0, // version + flags
     ...u32(0),
     ...u32(0), // creation, modification
-    ...u32(1000), // timescale
+    ...u32(timescale),
     ...u32(0), // duration
     ...u16(0x55c4), // packed lang "und"
     ...u16(0),
@@ -386,3 +657,138 @@ function buildMp4WithQtV0Audio(numChannels: number): Uint8Array {
     box("moov", [...videoTrak1080p(), ...audioTrak(audioStsd(mp4a))]),
   );
 }
+
+describe("AVI: chunk-bounded header reads", () => {
+  test("a full strl parses dimensions, codec, and framerate", () => {
+    const info = parseAVI(buildAvi({}));
+    expect(info.width).toBe(1920);
+    expect(info.height).toBe(1080);
+    expect(info.codec).toBe("avc1");
+    expect(info.framerate).toBe(29.97);
+  });
+
+  test("a truncated strh is rejected instead of reading the next chunk", () => {
+    // With strh cut to 16 bytes, an unbounded read would take dwScale/dwRate
+    // from whatever follows. The avih fallback supplies the real values.
+    const info = parseAVI(buildAvi({ strhSize: 16 }));
+    expect(info.width).toBe(640);
+    expect(info.height).toBe(480);
+    expect(info.framerate).toBe(25);
+    expect(info.codec).toBeUndefined();
+  });
+
+  test("a truncated strf falls back to the avih dimensions", () => {
+    const info = parseAVI(buildAvi({ strfSize: 12 }));
+    expect(info.width).toBe(640);
+    expect(info.height).toBe(480);
+    expect(info.codec).toBe("avc1");
+  });
+
+  test("a top-down (negative biHeight) bitmap reports a positive height", () => {
+    const info = parseAVI(buildAvi({ biHeight: -1080 }));
+    expect(info.height).toBe(1080);
+  });
+
+  test("duration uses the unrounded rate, not the rounded framerate", () => {
+    // 107892 frames divided by the rounded 29.97 lands on exactly 3600s, which
+    // is precisely the wrong answer: at the true 30000/1001 it is 3599.9964.
+    const info = parseAVI(buildAvi({ dwLength: 107892 }));
+    expect(info.framerate).toBe(29.97);
+    expect(info.duration).toBeCloseTo(3599.9964, 4);
+    expect(info.duration).not.toBe(3600);
+  });
+});
+
+interface AviOpts {
+  strhSize?: number;
+  strfSize?: number;
+  biWidth?: number;
+  biHeight?: number;
+  dwLength?: number;
+}
+
+const u32le = (n: number): number[] => [
+  n & 0xff,
+  (n >>> 8) & 0xff,
+  (n >>> 16) & 0xff,
+  (n >>> 24) & 0xff,
+];
+const chunk = (
+  type: string,
+  body: number[],
+  declaredSize?: number,
+): number[] => [...enc(type), ...u32le(declaredSize ?? body.length), ...body];
+
+function buildAvi(opts: AviOpts): Uint8Array {
+  // avih: fallback 25fps 640x480, deliberately different from the strl values
+  // so it is obvious which path produced the result.
+  const avih = chunk("avih", [
+    ...u32le(40000), // dwMicroSecPerFrame -> 25 fps
+    ...new Array(28).fill(0),
+    ...u32le(640), // dwWidth  (+32)
+    ...u32le(480), // dwHeight (+36)
+    ...new Array(16).fill(0),
+  ]);
+
+  const strh = chunk(
+    "strh",
+    [
+      ...enc("vids"),
+      ...enc("H264"),
+      ...new Array(12).fill(0),
+      ...u32le(1001), // dwScale  (+20)
+      ...u32le(30000), // dwRate   (+24)
+      ...u32le(0), // dwStart  (+28)
+      ...u32le(opts.dwLength ?? 300), // dwLength (+32)
+      ...new Array(16).fill(0),
+    ],
+    opts.strhSize,
+  );
+
+  const strf = chunk(
+    "strf",
+    [
+      ...u32le(40), // biSize
+      ...u32le(opts.biWidth ?? 1920), // biWidth  (+4)
+      ...u32le(opts.biHeight ?? 1080), // biHeight (+8)
+      ...u32le(0), // planes + bitcount (+12)
+      ...enc("H264"), // biCompression (+16)
+      ...new Array(20).fill(0),
+    ],
+    opts.strfSize,
+  );
+
+  const strl = [...enc("LIST"), ...u32le(4 + strh.length + strf.length)];
+  const hdrlBody = [
+    ...enc("hdrl"),
+    ...avih,
+    ...strl,
+    ...enc("strl"),
+    ...strh,
+    ...strf,
+  ];
+  const hdrl = [...enc("LIST"), ...u32le(hdrlBody.length), ...hdrlBody];
+  const riffBody = [...enc("AVI "), ...hdrl];
+  return new Uint8Array([
+    ...enc("RIFF"),
+    ...u32le(riffBody.length),
+    ...riffBody,
+  ]);
+}
+
+describe("AVI: malformed BITMAPINFOHEADER dimensions", () => {
+  test("a negative biWidth falls back to avih instead of flipping sign", () => {
+    // There is no top-down analog for width, so a negative biWidth is simply
+    // malformed. Taking its absolute value would manufacture a plausible 1900
+    // and suppress the fallback.
+    const info = parseAVI(buildAvi({ biWidth: -1900 }));
+    expect(info.width).toBe(640);
+    expect(info.height).toBe(480);
+  });
+
+  test("a zero biHeight falls back to avih", () => {
+    const info = parseAVI(buildAvi({ biHeight: 0 }));
+    expect(info.width).toBe(640);
+    expect(info.height).toBe(480);
+  });
+});

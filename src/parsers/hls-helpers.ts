@@ -62,11 +62,17 @@ export function splitCodecs(codecs: string | undefined): string[] {
     .filter(Boolean);
 }
 
-const AUDIO_PREFIXES = ["mp4a.", "ac-3", "ec-3", "opus", "flac", "vorbis"];
+const AUDIO_PREFIXES = ["mp4a", "ac-3", "ec-3", "opus", "flac", "vorbis"];
+const TEXT_PREFIXES = ["stpp", "wvtt"];
 
 export function isAudioCodec(codec: string): boolean {
   const lower = codec.toLowerCase();
   return AUDIO_PREFIXES.some((p) => lower.startsWith(p));
+}
+
+export function isTextCodec(codec: string): boolean {
+  const lower = codec.toLowerCase();
+  return TEXT_PREFIXES.some((p) => lower.startsWith(p));
 }
 
 export function parseResolution(
@@ -79,20 +85,4 @@ export function parseResolution(
   const height = parseInt(m[2], 10);
   if (!(width > 0 && height > 0)) return null;
   return { width, height };
-}
-
-export function parsePositiveInt(
-  value: string | undefined,
-): number | undefined {
-  if (!value) return undefined;
-  const n = parseInt(value, 10);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
-}
-
-export function parsePositiveFloat(
-  value: string | undefined,
-): number | undefined {
-  if (!value) return undefined;
-  const n = parseFloat(value);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
 }

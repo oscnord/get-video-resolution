@@ -1,29 +1,20 @@
 // Codecs that unambiguously indicate HDR — the codec string itself carries
-// the HDR signal. Used in both file and manifest paths.
+// the HDR signal. 10/12-bit profiles (HEVC Main 10, AV1 High, VP9 profile 2)
+// are deliberately absent: they are common in SDR content, so inferring HDR
+// from them flags SDR sources. Every parser prefers an explicit transfer
+// characteristic (MP4 `colr`, HLS VIDEO-RANGE, DASH CICP) and falls back here.
 const HDR_DEFINITE_PATTERNS = [
   /^dvhe\./i, // Dolby Vision
   /^dvh1\./i, // Dolby Vision
 ];
 
-// 10/12-bit profiles often used for HDR but not exclusively. Used as a
-// fallback signal in HLS/DASH manifests where colr metadata is unavailable.
-// File parsers prefer the explicit `colr` box and only fall back to
-// `isDefiniteHdrCodec` to avoid flagging Main 10 SDR sources as HDR.
-const HDR_PROBABLE_PATTERNS = [
-  /^hvc1\.2\./i, // HEVC Main 10
-  /^hev1\.2\./i, // HEVC Main 10
-  /^av01\.1\./i, // AV1 High profile
-  /^vp09\.02\./i, // VP9 profile 2
-];
-
-export function isHdrCodec(codec: string | undefined): boolean {
-  if (!codec) return false;
-  return [...HDR_DEFINITE_PATTERNS, ...HDR_PROBABLE_PATTERNS].some((p) =>
-    p.test(codec),
-  );
-}
-
 export function isDefiniteHdrCodec(codec: string | undefined): boolean {
   if (!codec) return false;
   return HDR_DEFINITE_PATTERNS.some((p) => p.test(codec));
+}
+
+// ITU-T H.273 / ISO 23091-2 transfer characteristics: 16 = PQ (HDR10),
+// 18 = HLG. Shared by the MP4 `colr` box and the DASH CICP descriptor.
+export function isHdrTransfer(value: number): boolean {
+  return value === 16 || value === 18;
 }
