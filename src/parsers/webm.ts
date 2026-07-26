@@ -1,6 +1,7 @@
 import { MediaParseError } from "../errors";
 import type { AudioTrack, ParsedMetadata, SubtitleTrack } from "../types";
-import { isHdrCodec } from "../utils/hdr";
+import { getAspectRatio } from "../utils/aspect-ratio";
+import { isDefiniteHdrCodec } from "../utils/hdr";
 
 const MAX_VINT_SIZE = 6; // 6 bytes = 2^48-1, safely within Number.MAX_SAFE_INTEGER
 
@@ -148,6 +149,7 @@ function mapCodecId(codecId: string): string {
 interface VideoTrackInfo {
   width: number;
   height: number;
+  aspectRatio?: string;
   codecId?: string;
   defaultDuration?: number;
 }
@@ -180,6 +182,7 @@ function parseTrackEntry(
   let language: string | undefined;
   let width = 0;
   let height = 0;
+  let aspectRatio: string | undefined;
   let channels: number | undefined;
 
   let pos = start;
@@ -209,7 +212,11 @@ function parseTrackEntry(
         language = readString(data, pos, size.value);
         break;
       case VIDEO_ID:
-        ({ width, height } = parseVideoElement(data, pos, elementEnd));
+        ({ width, height, aspectRatio } = parseVideoElement(
+          data,
+          pos,
+          elementEnd,
+        ));
         break;
       case AUDIO_ID:
         channels = parseAudioChannels(data, pos, elementEnd);
@@ -220,7 +227,10 @@ function parseTrackEntry(
   }
 
   if (trackType === 1 && width > 0 && height > 0) {
-    return { type: "video", info: { width, height, codecId, defaultDuration } };
+    return {
+      type: "video",
+      info: { width, height, aspectRatio, codecId, defaultDuration },
+    };
   }
   if (trackType === 2) {
     return { type: "audio", info: { codecId, language, channels } };
@@ -236,7 +246,7 @@ function parseVideoElement(
   data: Uint8Array,
   start: number,
   end: number,
-): { width: number; height: number } {
+): { width: number; height: number; aspectRatio?: string } {
   let pixelWidth = 0;
   let pixelHeight = 0;
   let displayWidth = 0;
@@ -268,10 +278,18 @@ function parseVideoElement(
     pos = elementEnd;
   }
 
-  const width = displayWidth > 0 ? displayWidth : pixelWidth;
-  const height = displayHeight > 0 ? displayHeight : pixelHeight;
+  // DisplayWidth/DisplayHeight carry a DisplayUnit that may be pixels, cm,
+  // inches, or a bare ratio, so they are only trustworthy as a ratio.
+  const aspectRatio =
+    displayWidth > 0 && displayHeight > 0
+      ? getAspectRatio(displayWidth, displayHeight)
+      : undefined;
 
-  return { width, height };
+  return {
+    width: pixelWidth > 0 ? pixelWidth : displayWidth,
+    height: pixelHeight > 0 ? pixelHeight : displayHeight,
+    aspectRatio,
+  };
 }
 
 function parseAudioChannels(
@@ -461,10 +479,11 @@ export function parseWebM(data: Uint8Array): ParsedMetadata {
   return {
     width: videoTrack.width,
     height: videoTrack.height,
+    aspectRatio: videoTrack.aspectRatio,
     duration,
     codec,
     framerate,
-    hdr: isHdrCodec(codec),
+    hdr: isDefiniteHdrCodec(codec),
     bitDepth: inferBitDepth(codec),
     audioTracks: mappedAudio.length > 0 ? mappedAudio : undefined,
     subtitleTracks: mappedSubtitles.length > 0 ? mappedSubtitles : undefined,

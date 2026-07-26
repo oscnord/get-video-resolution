@@ -21,9 +21,9 @@ export interface VideoInfo extends Resolution {
   framerate?: number;
   /** Bits per second. Populated for HLS/DASH variants only. */
   bitrate?: number;
-  /** Reduced aspect ratio string, e.g. `"16:9"`. */
+  /** Reduced display aspect ratio, e.g. `"16:9"`. Accounts for non-square pixels. */
   aspectRatio?: string;
-  /** True for HDR codecs (HLG, HDR10, Dolby Vision). */
+  /** True for HDR (HLG, HDR10, Dolby Vision). Requires an explicit signal — a 10-bit profile alone does not count. */
   hdr?: boolean;
   /** Display rotation in degrees: 0, 90, 180, 270. */
   rotation?: number;
@@ -41,6 +41,8 @@ export interface VideoInfo extends Resolution {
 export interface ParsedMetadata {
   width: number;
   height: number;
+  /** Set only when the container signals non-square pixels; otherwise derived from width/height. */
+  aspectRatio?: string;
   duration?: number;
   codec?: string;
   framerate?: number;

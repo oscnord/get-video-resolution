@@ -176,7 +176,7 @@ export default async function Page({ params }: { params: { id: string } }) {
 
 ### Display dimensions for rotated mobile video
 
-The library reports the *stored* `width`/`height` plus a separate `rotation`. A portrait iPhone clip stores `1920×1080` with `rotation: 90`. To get the dimensions you'll actually render:
+The library reports the *coded* `width`/`height` plus a separate `rotation`. A portrait iPhone clip stores `1920×1080` with `rotation: 90`. To get the dimensions you'll actually render:
 
 ```typescript
 const info = await getVideoResolution(source);
@@ -239,8 +239,8 @@ interface VideoInfo {
   codec?: string;         // e.g. "avc1.640028", "hev1.1.6.L150"
   framerate?: number;     // frames per second
   bitrate?: number;       // bits per second (HLS/DASH only)
-  aspectRatio?: string;   // e.g. "16:9", "4:3"
-  hdr?: boolean;          // true for HDR codecs (HLG, HDR10, Dolby Vision)
+  aspectRatio?: string;   // display AR, e.g. "16:9", "4:3"
+  hdr?: boolean;          // HLG, HDR10, or Dolby Vision (needs an explicit signal)
   rotation?: number;      // degrees (0, 90, 180, 270)
   bitDepth?: number;      // 8, 10, or 12
   encrypted?: boolean;    // DRM detected (HLS/DASH only)
@@ -287,6 +287,19 @@ When `sniff: true` and the URL has no recognized extension, a HEAD request inspe
 - `application/vnd.apple.mpegurl` / `audio/mpegurl` → HLS
 - `application/dash+xml` → DASH
 - A generic type (`application/octet-stream`, `text/plain`, `text/xml`, or empty) triggers a small `Range: bytes=0-2047` GET that inspects the first bytes for `#EXTM3U`, `<MPD`, or `<?xml` before falling back to the file parser.
+
+## Limitations
+
+Deliberate scope boundaries, not bugs:
+
+- **`width` / `height` are coded dimensions.** `aspectRatio` is the *display* aspect ratio: MP4 `pasp`, Matroska `DisplayWidth`/`DisplayHeight`, and DASH `sar`/`par` are all applied, so 1440×1080 anamorphic reports `1440`, `1080`, and `"16:9"`. It is not adjusted for `rotation` — see [Display dimensions for rotated mobile video](#display-dimensions-for-rotated-mobile-video).
+- **`hdr` requires an explicit signal.** MP4 `colr`, HLS `VIDEO-RANGE`, and the DASH CICP `TransferCharacteristics` descriptor are trusted; Dolby Vision codec strings (`dvhe.`/`dvh1.`) count on their own. A 10-bit profile alone (HEVC Main 10, AV1 High, VP9 profile 2) is **not** treated as HDR, because plenty of SDR content ships that way. An unsignalled HDR stream therefore reports `hdr: false`.
+- **`framerate` is an average, not an instantaneous rate.** For MP4 it is the mean over every `stts` entry (total samples ÷ total duration), which is exact for CFR and an average for VFR. WebM/MKV uses `DefaultDuration`; AVI uses `dwRate`/`dwScale`. All are rounded to 3 decimals.
+- **Only the first sample entry in an `stsd` box is read.** Tracks that change codec or dimensions mid-stream (multi-entry `stsd`) report the first entry only. This is rare outside of legacy QuickTime edits.
+- **The first video track wins.** Files with multiple video tracks (e.g. a thumbnail track) report the first one tagged with the `vide` handler.
+- **Only the first DASH `<Period>` is read.** Multi-period manifests (ad insertion, spliced content) report the first period's representations.
+- **HLS audio renditions are deduplicated by language and channel count.** A language offered at several bitrates collapses to one entry; a 5.1 mix stays separate from the stereo one.
+- **Only headers are read.** Metadata comes from the container. Bitstream-level details (SPS/VUI, per-frame HDR metadata) are never parsed, so a 1 MB probe is all that is fetched.
 
 ## Error handling
 
