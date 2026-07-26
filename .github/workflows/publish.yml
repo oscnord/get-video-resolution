@@ -43,3 +43,9 @@ jobs:
       - run: bun run build
       - run: npm publish --provenance --access public
       - run: git push --follow-tags
+      # After the tag is on the remote, so the release has something to point at.
+      - run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          gh release create "$TAG" --title "$TAG" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
