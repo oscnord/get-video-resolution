@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -34,8 +38,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install
       - run: bun run build
+      # Pinned: an upstream release should not turn this red with no change here.
       - name: Verify dual-package types resolve
-        run: bunx --bun @arethetypeswrong/cli@latest --pack
+        run: bunx --bun @arethetypeswrong/cli@0.18.5 --pack
 
   browser-bundle:
     runs-on: ubuntu-latest

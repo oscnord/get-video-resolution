@@ -19,6 +19,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # workflow_dispatch accepts any ref, and publishing is not undoable, so
+    # refuse to version/tag/publish from anything but main.
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
         with:
