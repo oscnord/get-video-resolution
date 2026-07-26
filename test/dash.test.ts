@@ -370,3 +370,50 @@ describe("DASH: CICP transfer characteristics drive hdr", () => {
     expect(results[0].hdr).toBe(true);
   });
 });
+
+describe("DASH: review follow-ups", () => {
+  test("CICP value before schemeIdUri is still detected", async () => {
+    // XML attribute order is not fixed; the descriptor must be parsed as
+    // attributes rather than matched positionally.
+    const results = await fromMpd(`<?xml version="1.0"?>
+<MPD><Period><AdaptationSet mimeType="video/mp4" width="3840" height="2160" codecs="hvc1.2.4.L153.B0">
+  <EssentialProperty value="16" schemeIdUri="urn:mpeg:mpegB:cicp:TransferCharacteristics"/>
+  <Representation id="1" bandwidth="15000000"/>
+</AdaptationSet></Period></MPD>`);
+    expect(results[0].hdr).toBe(true);
+  });
+
+  test("CICP with unrelated attributes interleaved is still detected", async () => {
+    const results = await fromMpd(`<?xml version="1.0"?>
+<MPD><Period><AdaptationSet mimeType="video/mp4" width="3840" height="2160" codecs="hvc1.2.4.L153.B0">
+  <EssentialProperty schemeIdUri="urn:mpeg:mpegB:cicp:TransferCharacteristics" id="x" value="18"/>
+  <Representation id="1" bandwidth="15000000"/>
+</AdaptationSet></Period></MPD>`);
+    expect(results[0].hdr).toBe(true);
+  });
+
+  test("a different CICP scheme is not mistaken for transfer characteristics", async () => {
+    const results = await fromMpd(`<?xml version="1.0"?>
+<MPD><Period><AdaptationSet mimeType="video/mp4" width="3840" height="2160" codecs="avc1.640028">
+  <EssentialProperty schemeIdUri="urn:mpeg:mpegB:cicp:ColourPrimaries" value="16"/>
+  <Representation id="1" bandwidth="15000000"/>
+</AdaptationSet></Period></MPD>`);
+    expect(results[0].hdr).toBe(false);
+  });
+
+  test("par on the Representation is honoured", async () => {
+    const results = await fromMpd(`<?xml version="1.0"?>
+<MPD><Period><AdaptationSet mimeType="video/mp4">
+  <Representation id="1" width="1440" height="1080" par="16:9" bandwidth="5000000"/>
+</AdaptationSet></Period></MPD>`);
+    expect(results[0].aspectRatio).toBe("16:9");
+  });
+
+  test("a Representation par overrides the set par", async () => {
+    const results = await fromMpd(`<?xml version="1.0"?>
+<MPD><Period><AdaptationSet mimeType="video/mp4" par="4:3">
+  <Representation id="1" width="1440" height="1080" par="16:9" bandwidth="5000000"/>
+</AdaptationSet></Period></MPD>`);
+    expect(results[0].aspectRatio).toBe("16:9");
+  });
+});

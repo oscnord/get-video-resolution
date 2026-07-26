@@ -143,10 +143,16 @@ function parseStrf(data: Uint8Array, chunk: ChunkHeader): BitmapInfo | null {
   const offset = chunk.offset + chunk.headerSize;
   if (chunk.size < 20 || offset + 20 > data.length) return null;
 
+  // Both are signed LONGs, but only biHeight has a negative meaning: it marks
+  // a top-down bitmap. A negative biWidth is just malformed, so reject it and
+  // let the avih fallback supply the dimensions.
+  const biWidth = readU32LE(data, offset + 4) | 0;
+  const biHeight = readU32LE(data, offset + 8) | 0;
+  if (biWidth <= 0 || biHeight === 0) return null;
+
   return {
-    // Both are signed LONGs; biHeight is negative for top-down bitmaps.
-    biWidth: Math.abs(readU32LE(data, offset + 4) | 0),
-    biHeight: Math.abs(readU32LE(data, offset + 8) | 0),
+    biWidth,
+    biHeight: Math.abs(biHeight),
     biCompression: readFourCC(data, offset + 16),
   };
 }

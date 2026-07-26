@@ -86,7 +86,8 @@ function extractRepresentations(
         duration,
         aspectRatio: sar
           ? getAspectRatio(width * sar[0], height * sar[1])
-          : (parseRatioString(set.get("par")) ?? getAspectRatio(width, height)),
+          : (parseRatioString(inherited("par", rep)) ??
+            getAspectRatio(width, height)),
         hdr: parseCicpHdr(repBody ?? "") ?? setHdr ?? isDefiniteHdrCodec(codec),
       });
     }
@@ -99,8 +100,16 @@ function extractRepresentations(
 // property is the DASH equivalent of the MP4 `colr` box. Absent -> null so the
 // caller can fall back rather than treating "no descriptor" as "not HDR".
 function parseCicpHdr(scope: string): boolean | null {
-  const match = /TransferCharacteristics"\s+value="(\d+)"/i.exec(scope);
-  return match ? isHdrTransfer(parseInt(match[1], 10)) : null;
+  for (const tag of ["EssentialProperty", "SupplementalProperty"]) {
+    for (const { attrs } of iterateOpenTags(scope, tag)) {
+      const a = parseXmlAttrs(attrs);
+      if (!a.get("schemeIdUri")?.endsWith("cicp:TransferCharacteristics"))
+        continue;
+      const transfer = parsePositiveInt(a.get("value"));
+      if (transfer !== undefined) return isHdrTransfer(transfer);
+    }
+  }
+  return null;
 }
 
 function parseRatio(value: string | undefined): [number, number] | null {

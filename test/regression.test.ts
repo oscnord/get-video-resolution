@@ -702,6 +702,7 @@ describe("AVI: chunk-bounded header reads", () => {
 interface AviOpts {
   strhSize?: number;
   strfSize?: number;
+  biWidth?: number;
   biHeight?: number;
   dwLength?: number;
 }
@@ -748,7 +749,7 @@ function buildAvi(opts: AviOpts): Uint8Array {
     "strf",
     [
       ...u32le(40), // biSize
-      ...u32le(1920), // biWidth  (+4)
+      ...u32le(opts.biWidth ?? 1920), // biWidth  (+4)
       ...u32le(opts.biHeight ?? 1080), // biHeight (+8)
       ...u32le(0), // planes + bitcount (+12)
       ...enc("H264"), // biCompression (+16)
@@ -774,3 +775,20 @@ function buildAvi(opts: AviOpts): Uint8Array {
     ...riffBody,
   ]);
 }
+
+describe("AVI: malformed BITMAPINFOHEADER dimensions", () => {
+  test("a negative biWidth falls back to avih instead of flipping sign", () => {
+    // There is no top-down analog for width, so a negative biWidth is simply
+    // malformed. Taking its absolute value would manufacture a plausible 1900
+    // and suppress the fallback.
+    const info = parseAVI(buildAvi({ biWidth: -1900 }));
+    expect(info.width).toBe(640);
+    expect(info.height).toBe(480);
+  });
+
+  test("a zero biHeight falls back to avih", () => {
+    const info = parseAVI(buildAvi({ biHeight: 0 }));
+    expect(info.width).toBe(640);
+    expect(info.height).toBe(480);
+  });
+});
