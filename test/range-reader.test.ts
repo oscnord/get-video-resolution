@@ -330,14 +330,16 @@ describe("reads never exceed the source", () => {
       ...box("free", new Array(2 * PROBE_SIZE).fill(0)),
     ]);
 
-    const requested: number[] = [];
+    // Exclusive end offsets, not lengths: a short range can still sit past EOF,
+    // e.g. bytes=2000000-3000000 in a 2 MB file.
+    const requestedEnds: number[] = [];
     const fetchMock = mock(async (_url: string, init?: RequestInit) => {
       const headers = (init?.headers ?? {}) as Record<string, string>;
       const match = headers.Range?.match(/bytes=(\d+)-(\d+)/);
       if (!match) return new Response(bytes, { status: 200 });
       const start = Number(match[1]);
       const end = Number(match[2]);
-      requested.push(end - start + 1);
+      requestedEnds.push(end + 1);
       const slice = bytes.slice(start, Math.min(end + 1, bytes.length));
       return new Response(slice, {
         status: 206,
@@ -353,9 +355,9 @@ describe("reads never exceed the source", () => {
       }),
     ).rejects.toBeInstanceOf(MediaParseError);
 
-    expect(requested.length).toBeGreaterThan(0);
-    for (const length of requested) {
-      expect(length).toBeLessThanOrEqual(bytes.length);
+    expect(requestedEnds.length).toBeGreaterThan(0);
+    for (const endOffset of requestedEnds) {
+      expect(endOffset).toBeLessThanOrEqual(bytes.length);
     }
   });
 });
