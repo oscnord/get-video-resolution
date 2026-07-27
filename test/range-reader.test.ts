@@ -297,18 +297,22 @@ describe("recovery is only attempted when the layout calls for it", () => {
   test("does not issue a second request for a complete moov", async () => {
     const bytes = audioOnlyMp4();
     const fetchMock = rangeServer(bytes);
-    await parseFile("https://example.com/v.mp4", {
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
-    }).catch(() => undefined);
+    await expect(
+      parseFile("https://example.com/v.mp4", {
+        fetch: fetchMock as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toThrow(/no video track/i);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test("an unidentifiable source is not re-read", async () => {
     const bytes = new Uint8Array(4 * PROBE_SIZE).fill(0x7a);
     const fetchMock = rangeServer(bytes);
-    await parseFile("https://example.com/mystery.bin", {
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
-    }).catch(() => undefined);
+    await expect(
+      parseFile("https://example.com/mystery.bin", {
+        fetch: fetchMock as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toThrow(/unrecognized file format/i);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -342,10 +346,13 @@ describe("reads never exceed the source", () => {
       });
     });
 
-    await parseFile("https://example.com/v.mp4", {
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
-    }).catch(() => undefined);
+    await expect(
+      parseFile("https://example.com/v.mp4", {
+        fetch: fetchMock as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toBeInstanceOf(MediaParseError);
 
+    expect(requested.length).toBeGreaterThan(0);
     for (const length of requested) {
       expect(length).toBeLessThanOrEqual(bytes.length);
     }
