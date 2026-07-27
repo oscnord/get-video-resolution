@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>get-video-resolution · playground</title>
 <meta name="description" content="Read resolution, codec, framerate, HDR, rotation and track lists from MP4, MOV, WebM, MKV, AVI, HLS and DASH. Runs in your browser. No ffmpeg, no upload." />
-<meta name="theme-color" content="#f7f8fb" />
+<meta name="theme-color" content="#f7f8fb" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#14161c" media="(prefers-color-scheme: dark)" />
 <meta property="og:title" content="get-video-resolution · playground" />
 <meta property="og:description" content="Drop a video file or paste a stream URL and read its metadata in the browser. Zero dependencies, no ffmpeg." />
 <meta property="og:type" content="website" />
@@ -14,27 +15,44 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script>
+  // Resolve before first paint, otherwise dark-mode visitors get a white flash.
+  try {
+    const pref = localStorage.getItem("gvr-theme") || "system";
+    const dark = pref === "dark"
+      || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  } catch { /* private mode: the light default below stands */ }
+</script>
 <style>
 /* Hallmark · genre: modern-minimal · macrostructure: Component Playground · theme: Cobalt
  * nav: N1a · footer: Ft2 · enrichment: none · anchor hue: 256
  */
 
 :root {
+  color-scheme: light;
+  --shadow-card: 0 1px 2px oklch(24% 0.02 258 / 0.06);
+
   --color-paper:      oklch(98.5% 0.004 250);
   --color-paper-2:    oklch(96.4% 0.006 252);
   --color-rule:       oklch(90%   0.008 252);
   --color-rule-2:     oklch(83%   0.011 252);
-  --color-neutral:    oklch(55%   0.015 255);
+  /* Hairlines above are decorative. A control whose border is its only affordance
+     needs 3:1 per WCAG 1.4.11, which a hairline cannot reach. */
+  --color-control:    oklch(63.5% 0.014 256);
+  --color-neutral:    oklch(52%   0.015 255);
   --color-ink-2:      oklch(34%   0.018 257);
   --color-ink:        oklch(24%   0.020 258);
-  --color-accent:     oklch(58%   0.20  256);
-  --color-accent-dim: oklch(50%   0.18  256);
+  --color-accent:     oklch(54%   0.20  256);
+  --color-accent-dim: oklch(46%   0.18  256);
   --color-accent-ink: oklch(99%   0.005 250);
   --color-graphite:   oklch(22%   0.016 260);
   --color-graphite-2: oklch(28%   0.016 260);
   --color-on-graphite:oklch(88%   0.010 255);
-  --color-focus:      oklch(58%   0.20  256);
-  --color-danger:     oklch(56%   0.17  25);
+  --color-focus:      oklch(54%   0.20  256);
+  /* Serves two grounds: an invalid-input border on light paper and error text on
+     the always-dark code card, so it is tuned to clear both. */
+  --color-danger:     oklch(64%   0.17  25);
   --color-ok:         oklch(65%   0.14  158);
 
   --tok-key:   oklch(72% 0.15 250);
@@ -76,6 +94,31 @@
   --measure: 58ch;
 }
 
+/* Hue anchor is held at ~256 across both modes; only lightness and chroma move.
+   The graphite code card stays dark in both, so --tok-* and --color-on-graphite
+   are mode-independent. A drop shadow on a dark ground reads as a glow, so it goes. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --shadow-card: none;
+
+  --color-paper:      oklch(15%   0.014 258);
+  --color-paper-2:    oklch(19.5% 0.015 258);
+  --color-rule:       oklch(29%   0.014 256);
+  --color-rule-2:     oklch(38%   0.016 256);
+  --color-control:    oklch(56%   0.016 256);
+  --color-neutral:    oklch(65%   0.016 255);
+  --color-ink-2:      oklch(85%   0.012 255);
+  --color-ink:        oklch(95%   0.008 252);
+  --color-accent:     oklch(70%   0.16  256);
+  --color-accent-dim: oklch(78%   0.13  256);
+  --color-accent-ink: oklch(16%   0.020 258);
+  --color-graphite:   oklch(11%   0.014 260);
+  --color-graphite-2: oklch(21%   0.014 260);
+  --color-focus:      oklch(72%   0.17  256);
+  --color-danger:     oklch(70%   0.15  25);
+  --color-ok:         oklch(74%   0.13  158);
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body { overflow-x: clip; }
 html { -webkit-text-size-adjust: 100%; }
@@ -97,7 +140,10 @@ h1, h2, h3 {
   min-width: 0;
   margin: 0;
 }
+/* 1.08 is for the display h1 only; it overlaps itself on a wrapped small heading. */
+h2, h3 { line-height: 1.25; }
 p { margin: 0; }
+code { overflow-wrap: anywhere; }
 
 :where(a, button, input):focus-visible {
   outline: 2px solid var(--color-focus);
@@ -145,7 +191,30 @@ p { margin: 0; }
   padding: 1px 6px;
 }
 @media (max-width: 480px) { .chip-v { display: none; } }
+
+.nav__right { display: flex; align-items: center; gap: var(--space-lg); }
 .nav__links { display: flex; gap: var(--space-lg); }
+/* Both links also sit in the footer, so dropping them here loses no destination. */
+@media (max-width: 560px) { .nav__links { display: none; } }
+
+.theme {
+  display: flex; gap: 2px; margin: 0; padding: 2px; min-inline-size: 0;
+  border: 1px solid var(--color-rule); border-radius: var(--radius-sm);
+  background: var(--color-paper-2);
+}
+.theme__opt {
+  display: grid; place-items: center; width: 27px; height: 21px;
+  border-radius: 4px; cursor: pointer; color: var(--color-neutral);
+  transition: color var(--dur-fast) var(--ease-out),
+              background-color var(--dur-fast) var(--ease-out);
+}
+.theme__opt:hover { color: var(--color-ink); }
+.theme__opt:has(:checked) {
+  background: var(--color-paper); color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-rule);
+}
+.theme__opt:has(:focus-visible) { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.theme__opt svg { display: block; width: 14px; height: 14px; }
 .nav__links a {
   font-size: var(--text-sm); text-decoration: none;
   color: var(--color-ink-2); position: relative; padding-block: 2px;
@@ -203,7 +272,7 @@ p { margin: 0; }
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: var(--space-2xs); text-align: center;
   min-height: 148px; padding: var(--space-lg);
-  border: 1px dashed var(--color-rule-2); border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-control); border-radius: var(--radius-sm);
   background: var(--color-paper); cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease-out),
               background-color var(--dur-fast) var(--ease-out);
@@ -228,7 +297,7 @@ p { margin: 0; }
   flex: 1; min-width: 0;
   font-family: var(--font-mono); font-size: var(--text-sm);
   color: var(--color-ink); background: var(--color-paper);
-  border: 1px solid var(--color-rule-2); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-control); border-radius: var(--radius-sm);
   padding: var(--space-xs) var(--space-sm);
   transition: border-color var(--dur-fast) var(--ease-out);
 }
@@ -252,7 +321,7 @@ p { margin: 0; }
 .btn--primary:disabled { background: var(--color-neutral); cursor: not-allowed; }
 .btn--ghost {
   background: var(--color-paper); color: var(--color-ink-2);
-  border-color: var(--color-rule-2);
+  border-color: var(--color-control);
 }
 .btn--ghost:hover { border-color: var(--color-accent); color: var(--color-ink); }
 .btn--ghost:active { background: var(--color-paper-2); }
@@ -271,7 +340,7 @@ p { margin: 0; }
 .result {
   border: 1px solid var(--color-rule-2); border-radius: var(--radius-md);
   background: var(--color-graphite); overflow: hidden;
-  box-shadow: 0 1px 2px oklch(24% 0.02 258 / 0.06);
+  box-shadow: var(--shadow-card);
 }
 .result__bar {
   display: flex; align-items: center; justify-content: space-between;
@@ -369,10 +438,41 @@ p { margin: 0; }
     <a class="nav__mark" href="https://github.com/oscnord/get-video-resolution">
       get-video-resolution <span class="chip-v">v2</span>
     </a>
-    <nav class="nav__links" aria-label="Project links">
-      <a href="https://www.npmjs.com/package/@oscnord/get-video-resolution">npm</a>
-      <a href="https://github.com/oscnord/get-video-resolution">GitHub</a>
-    </nav>
+    <div class="nav__right">
+      <fieldset class="theme">
+        <legend class="sr-only">Colour theme</legend>
+        <label class="theme__opt" title="Light">
+          <input class="sr-only" type="radio" name="theme" value="light" />
+          <span class="sr-only">Light</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+               stroke-linecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2.6v2M12 19.4v2M2.6 12h2M19.4 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M18.7 5.3l-1.4 1.4M6.7 17.3l-1.4 1.4" />
+          </svg>
+        </label>
+        <label class="theme__opt" title="Match system">
+          <input class="sr-only" type="radio" name="theme" value="system" />
+          <span class="sr-only">Match system</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+               stroke-linecap="round" aria-hidden="true">
+            <rect x="2.8" y="4.4" width="18.4" height="12" rx="1.6" />
+            <path d="M9 19.6h6M12 16.4v3.2" />
+          </svg>
+        </label>
+        <label class="theme__opt" title="Dark">
+          <input class="sr-only" type="radio" name="theme" value="dark" />
+          <span class="sr-only">Dark</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+               stroke-linecap="round" aria-hidden="true">
+            <path d="M20.2 14.6A8.6 8.6 0 0 1 9.4 3.8a8.6 8.6 0 1 0 10.8 10.8z" />
+          </svg>
+        </label>
+      </fieldset>
+      <nav class="nav__links" aria-label="Project links">
+        <a href="https://www.npmjs.com/package/@oscnord/get-video-resolution">npm</a>
+        <a href="https://github.com/oscnord/get-video-resolution">GitHub</a>
+      </nav>
+    </div>
   </div>
 </header>
 
@@ -547,18 +647,25 @@ function setStatus(state, text) {
 function setBusy(busy) {
   goBtn.disabled = busy;
   urlInput.disabled = busy;
+  fileInput.disabled = busy;
   goBtn.textContent = busy ? "Parsing…" : "Parse";
   for (const b of sampleButtons) b.disabled = busy;
 }
 
+// Both the real call and the displayed snippet read this, so they cannot drift.
+const currentOptions = () =>
+  allBox.checked ? { timeout: 20000, pick: "all" } : { timeout: 20000 };
+
+const formatOptions = (opts) =>
+  `{ ${Object.entries(opts).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(", ")} }`;
+
 let sourceExpr = '"https://example.com/master.m3u8"';
 function setSnippet(expr = sourceExpr) {
   sourceExpr = expr;
-  const opts = allBox.checked ? ', { pick: "all" }' : "";
   codeEl.textContent = [
     'import { getVideoResolution } from "@oscnord/get-video-resolution";',
     "",
-    `const info = await getVideoResolution(${expr}${opts});`,
+    `const info = await getVideoResolution(${expr}, ${formatOptions(currentOptions())});`,
   ].join("\n");
 }
 
@@ -596,7 +703,13 @@ function renderError(error, source) {
   out.innerHTML = parts.join("");
 }
 
+// Dropping a file mid-parse would start a second run whose result could land first.
+let parsing = false;
+
 async function run(source, displayName) {
+  if (parsing) return;
+  parsing = true;
+
   srcEl.textContent = displayName;
   setStatus("parsing", "Parsing");
   setBusy(true);
@@ -604,16 +717,15 @@ async function run(source, displayName) {
   setSnippet(typeof source === "string" ? JSON.stringify(source) : "file");
 
   try {
-    const opts = { timeout: 20000 };
-    if (allBox.checked) opts.pick = "all";
     api ??= await lib;
-    const info = await api.getVideoResolution(source, opts);
+    const info = await api.getVideoResolution(source, currentOptions());
     setStatus("ok", "Parsed");
     out.innerHTML = `<pre>${highlight(info)}</pre>`;
   } catch (error) {
     renderError(error, source);
     console.error(error);
   } finally {
+    parsing = false;
     setBusy(false);
   }
 }
@@ -645,17 +757,41 @@ allBox.addEventListener("change", () => setSnippet());
 
 for (const btn of document.querySelectorAll("[data-copy], #copycode")) {
   btn.addEventListener("click", async () => {
-    const text = btn.dataset.copy ?? codeEl.textContent;
+    // Cache the original once, or a rapid second click captures "Copied" as the label.
+    btn.dataset.label ??= btn.textContent;
+    let result = "Copied";
     try {
-      await navigator.clipboard.writeText(text);
-      const previous = btn.textContent;
-      btn.textContent = "Copied";
-      setTimeout(() => { btn.textContent = previous; }, 1400);
+      await navigator.clipboard.writeText(btn.dataset.copy ?? codeEl.textContent);
     } catch {
-      btn.textContent = "Press ⌘C";
+      result = "Copy failed";
     }
+    btn.textContent = result;
+    setTimeout(() => { btn.textContent = btn.dataset.label; }, 1400);
   });
 }
+
+const THEME_KEY = "gvr-theme";
+const darkMedia = matchMedia("(prefers-color-scheme: dark)");
+
+function readTheme() {
+  try { return localStorage.getItem(THEME_KEY) || "system"; } catch { return "system"; }
+}
+
+// The stored value keeps "system"; the attribute always names a concrete theme, so
+// the stylesheet needs one dark block rather than a media-query duplicate of it.
+function applyTheme(pref) {
+  const dark = pref === "dark" || (pref === "system" && darkMedia.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+}
+
+for (const input of document.querySelectorAll('input[name="theme"]')) {
+  input.checked = input.value === readTheme();
+  input.addEventListener("change", () => {
+    try { localStorage.setItem(THEME_KEY, input.value); } catch { /* not persisted */ }
+    applyTheme(input.value);
+  });
+}
+darkMedia.addEventListener("change", () => applyTheme(readTheme()));
 
 setSnippet();
 </script>
