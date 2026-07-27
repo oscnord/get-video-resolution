@@ -48,13 +48,9 @@ describe("feature: structured error context", () => {
 });
 
 describe("feature: AVI audio extraction", () => {
-  test("parseFile yields audioTracks for AVI fixture if present", async () => {
-    // The existing fixture is video-only. Just confirm parser doesn't throw and
-    // audioTracks shape is either undefined or an array.
+  test("reports no audioTracks for a video-only AVI", async () => {
     const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
-    if (result.audioTracks !== undefined) {
-      expect(Array.isArray(result.audioTracks)).toBe(true);
-    }
+    expect(result.audioTracks).toBeUndefined();
   });
 
   test("parseAVI extracts audio from a synthetic AVI with auds strl", () => {

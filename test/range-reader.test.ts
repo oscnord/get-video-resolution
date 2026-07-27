@@ -359,6 +359,114 @@ describe("reads never exceed the source", () => {
   });
 });
 
+describe("timeout budget", () => {
+  test("spans the whole parse, not each request", async () => {
+    // A trailing-moov file needs two requests. Both must share one signal, or a
+    // `timeout` silently becomes per-request and a two-request parse gets twice
+    // the budget the caller asked for.
+    const bytes = mp4WithTrailingMoov();
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const fetchMock = mock(async (_url: string, init?: RequestInit) => {
+      signals.push(init?.signal);
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      const match = headers.Range?.match(/bytes=(\d+)-(\d+)/);
+      if (!match) return new Response(bytes, { status: 200 });
+      const start = Number(match[1]);
+      const end = Math.min(Number(match[2]), bytes.length - 1);
+      return new Response(bytes.slice(start, end + 1), {
+        status: 206,
+        headers: { "content-range": `bytes ${start}-${end}/${bytes.length}` },
+      });
+    });
+
+    await parseFile("https://example.com/v.mp4", {
+      timeout: 30_000,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+    });
+
+    expect(signals.length).toBeGreaterThan(1);
+    expect(new Set(signals).size).toBe(1);
+  });
+
+  test("a caller's own AbortSignal reaches every request", async () => {
+    const bytes = mp4WithTrailingMoov();
+    const controller = new AbortController();
+    let seen = 0;
+    const fetchMock = mock(async (_url: string, init?: RequestInit) => {
+      if (init?.signal) seen += 1;
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      const match = headers.Range?.match(/bytes=(\d+)-(\d+)/);
+      if (!match) return new Response(bytes, { status: 200 });
+      const start = Number(match[1]);
+      const end = Math.min(Number(match[2]), bytes.length - 1);
+      return new Response(bytes.slice(start, end + 1), {
+        status: 206,
+        headers: { "content-range": `bytes ${start}-${end}/${bytes.length}` },
+      });
+    });
+
+    await parseFile("https://example.com/v.mp4", {
+      signal: controller.signal,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+    });
+
+    expect(seen).toBe(fetchMock.mock.calls.length);
+  });
+});
+
+describe("ReadableStream input", () => {
+  const streamOf = (bytes: Uint8Array) => {
+    let offset = 0;
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= bytes.length) {
+          controller.close();
+          return;
+        }
+        const chunk = bytes.subarray(offset, offset + 128 * 1024);
+        offset += chunk.length;
+        controller.enqueue(chunk);
+      },
+    });
+  };
+
+  test("a trailing moov within the drain cap is reachable", async () => {
+    // A stream cannot seek, so the tail is only reachable while it fits the cap.
+    const bytes = mp4WithTrailingMoov(PROBE_SIZE / 2);
+    const result = await parseFile(streamOf(bytes), {});
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+  });
+
+  test("a trailing moov beyond the drain cap fails rather than hanging", async () => {
+    const bytes = mp4WithTrailingMoov(8 * PROBE_SIZE);
+    await expect(parseFile(streamOf(bytes), {})).rejects.toBeInstanceOf(
+      MediaParseError,
+    );
+  });
+
+  test("a leading moov parses regardless of stream length", async () => {
+    const bytes = new Uint8Array([
+      ...FTYP,
+      ...box("moov", videoTrak()),
+      ...box("mdat", new Array(6 * PROBE_SIZE).fill(0)),
+    ]);
+    const result = await parseFile(streamOf(bytes), {});
+    expect(result.width).toBe(1920);
+  });
+});
+
+describe("resource handling", () => {
+  test("repeated local parses do not leak file handles", async () => {
+    const path = await tempFile(mp4WithTrailingMoov(PROBE_SIZE), "handles.mp4");
+    // Comfortably past a default descriptor limit if close() were skipped.
+    for (let i = 0; i < 400; i++) {
+      const info = await parseFile(path, {});
+      expect(info.width).toBe(1920);
+    }
+  });
+});
+
 describe("HTTP failures", () => {
   test("a non-2xx response is a NetworkError, matching the manifest paths", async () => {
     const fetchMock = mock(async () => new Response("nope", { status: 404 }));

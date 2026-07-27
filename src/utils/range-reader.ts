@@ -138,6 +138,9 @@ async function windowedReaderFromStream(
 
 export function httpReader(url: string, options: FetchOptions): RangeReader {
   const fetchFn = options.fetch ?? globalThis.fetch;
+  // Built once, so `timeout` is a budget for the whole parse rather than a fresh
+  // allowance per request. A parse can take several reads.
+  const { signal } = buildSignal(options);
   let total: number | undefined;
   // Set once a server answers 200 to a ranged request, proving it will not seek.
   let unranged: RangeReader | undefined;
@@ -147,7 +150,6 @@ export function httpReader(url: string, options: FetchOptions): RangeReader {
     read: async (start, length) => {
       if (unranged) return await unranged.read(start, length);
 
-      const { signal } = buildSignal(options);
       const response = await fetchFn(url, {
         signal,
         headers: { Range: `bytes=${start}-${start + length - 1}` },
