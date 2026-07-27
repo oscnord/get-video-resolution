@@ -483,7 +483,7 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   const moov = findBox(data, 0, data.length, "moov");
   if (!moov) {
     throw new MediaParseError("No moov box found — not a valid MP4 file", {
-      context: { format: "mp4" },
+      context: { format: "mp4", reason: "no-moov" },
     });
   }
 
@@ -503,7 +503,7 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   }
   if (!videoTrak) {
     throw new MediaParseError("No video track found in MP4 file", {
-      context: { format: "mp4" },
+      context: { format: "mp4", reason: "no-video-track" },
     });
   }
 
@@ -521,14 +521,14 @@ export function parseMP4(data: Uint8Array): ParsedMetadata {
   if (!stsd) {
     throw new MediaParseError(
       "No sample description (stsd) found in video track",
-      { context: { format: "mp4" } },
+      { context: { format: "mp4", reason: "no-sample-description" } },
     );
   }
 
   const dims = parseDimensions(data, stsd);
   if (!dims) {
     throw new MediaParseError("Could not read video dimensions from stsd", {
-      context: { format: "mp4" },
+      context: { format: "mp4", reason: "no-dimensions" },
     });
   }
 

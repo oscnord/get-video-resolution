@@ -7,7 +7,9 @@ Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more fr
 
 Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources (see [Where it runs](#where-it-runs)).
 
-Reads only the header regions it needs rather than the whole file. For a remote URL that means a `Range` request for the first 1 MB, plus a small tail read when an MP4 stores its `moov` at the end; a local path reads those same regions off disk. Three cases still take everything: a `Blob` or `File` input is buffered in full, a server that ignores `Range` returns the whole body, and a format the 1 MB probe cannot identify falls back to a complete download.
+Reads only the header regions it needs, never the whole file: about 1 MB from the start, plus a small tail read when an MP4 stores its `moov` at the end. That holds identically for a URL, a local path, a `Buffer`, a `Blob`/`File` and a `ReadableStream`, so a 1.5 GB source costs the same as a 4 MB one.
+
+Two bounded exceptions: a server that ignores `Range` has its body streamed through once, so memory stays bounded but the bandwidth cannot be reclaimed; and a container whose format cannot be identified from the first 1 MB is read in full, up to a 64 MB ceiling, before giving up.
 
 **[Try it in your browser →](https://www.oscarnord.com/get-video-resolution/)** Drop a video file or paste a stream URL and read the parsed `VideoInfo`, no install required.
 
@@ -339,7 +341,7 @@ try {
 
 | Error class | When |
 | --- | --- |
-| `NetworkError` | HTTP request failed, timed out, or was aborted |
+| `NetworkError` | HTTP request failed, timed out, or was aborted. Covers a non-2xx response for any source, a file URL as much as a manifest |
 | `ManifestParseError` | HLS/DASH manifest could not be parsed or has no resolution |
 | `UnsupportedSourceError` | Source string is not a valid path or URL |
 | `MediaParseError` | File could not be parsed or has no video track |
@@ -367,6 +369,24 @@ interface VideoResolutionErrorContext {
   format?: string;       // "mp4" | "webm" | "avi" | "hls" | "dash"
   byteOffset?: number;   // file offset, for parser errors
   status?: number;       // HTTP status, for network errors
+  reason?:               // machine-readable cause, so you never match on message text
+    | "no-moov"
+    | "no-video-track"
+    | "no-sample-description"
+    | "no-dimensions"
+    | "unrecognized-format";
+}
+```
+
+`reason` is the field to branch on. `"no-moov"` in particular means the header lives elsewhere in the file rather than being unusable, which is how the library itself decides whether re-reading could help:
+
+```typescript
+try {
+  await getVideoResolution(source);
+} catch (error) {
+  if (error instanceof MediaParseError && error.context?.reason === "no-video-track") {
+    // A valid container that carries only audio.
+  }
 }
 ```
 

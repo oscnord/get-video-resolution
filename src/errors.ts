@@ -11,6 +11,17 @@ export interface VideoResolutionErrorContext {
   byteOffset?: number;
   /** HTTP status when the error came from a network request. */
   status?: number;
+  /**
+   * Machine-readable cause, so callers branch on structure instead of matching
+   * on message text. `"no-moov"` in particular distinguishes "the header is
+   * elsewhere in the file" from "the header is here and unusable".
+   */
+  reason?:
+    | "no-moov"
+    | "no-video-track"
+    | "no-sample-description"
+    | "no-dimensions"
+    | "unrecognized-format";
 }
 
 /**
