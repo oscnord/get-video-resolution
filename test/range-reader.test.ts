@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { readdirSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -297,18 +298,22 @@ describe("recovery is only attempted when the layout calls for it", () => {
   test("does not issue a second request for a complete moov", async () => {
     const bytes = audioOnlyMp4();
     const fetchMock = rangeServer(bytes);
-    await parseFile("https://example.com/v.mp4", {
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
-    }).catch(() => undefined);
+    await expect(
+      parseFile("https://example.com/v.mp4", {
+        fetch: fetchMock as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toThrow(/no video track/i);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test("an unidentifiable source is not re-read", async () => {
     const bytes = new Uint8Array(4 * PROBE_SIZE).fill(0x7a);
     const fetchMock = rangeServer(bytes);
-    await parseFile("https://example.com/mystery.bin", {
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
-    }).catch(() => undefined);
+    await expect(
+      parseFile("https://example.com/mystery.bin", {
+        fetch: fetchMock as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toThrow(/unrecognized file format/i);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -325,14 +330,16 @@ describe("reads never exceed the source", () => {
       ...box("free", new Array(2 * PROBE_SIZE).fill(0)),
     ]);
 
-    const requested: number[] = [];
+    // Exclusive end offsets, not lengths: a short range can still sit past EOF,
+    // e.g. bytes=2000000-3000000 in a 2 MB file.
+    const requestedEnds: number[] = [];
     const fetchMock = mock(async (_url: string, init?: RequestInit) => {
       const headers = (init?.headers ?? {}) as Record<string, string>;
       const match = headers.Range?.match(/bytes=(\d+)-(\d+)/);
       if (!match) return new Response(bytes, { status: 200 });
       const start = Number(match[1]);
       const end = Number(match[2]);
-      requested.push(end - start + 1);
+      requestedEnds.push(end + 1);
       const slice = bytes.slice(start, Math.min(end + 1, bytes.length));
       return new Response(slice, {
         status: 206,
@@ -342,13 +349,142 @@ describe("reads never exceed the source", () => {
       });
     });
 
-    await parseFile("https://example.com/v.mp4", {
-      fetch: fetchMock as unknown as typeof globalThis.fetch,
-    }).catch(() => undefined);
+    await expect(
+      parseFile("https://example.com/v.mp4", {
+        fetch: fetchMock as unknown as typeof globalThis.fetch,
+      }),
+    ).rejects.toBeInstanceOf(MediaParseError);
 
-    for (const length of requested) {
-      expect(length).toBeLessThanOrEqual(bytes.length);
+    expect(requestedEnds.length).toBeGreaterThan(0);
+    for (const endOffset of requestedEnds) {
+      expect(endOffset).toBeLessThanOrEqual(bytes.length);
     }
+  });
+});
+
+describe("timeout budget", () => {
+  test("spans the whole parse, not each request", async () => {
+    // A trailing-moov file needs two requests. Both must share one signal, or a
+    // `timeout` silently becomes per-request and a two-request parse gets twice
+    // the budget the caller asked for.
+    const bytes = mp4WithTrailingMoov();
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const fetchMock = mock(async (_url: string, init?: RequestInit) => {
+      signals.push(init?.signal);
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      const match = headers.Range?.match(/bytes=(\d+)-(\d+)/);
+      if (!match) return new Response(bytes, { status: 200 });
+      const start = Number(match[1]);
+      const end = Math.min(Number(match[2]), bytes.length - 1);
+      return new Response(bytes.slice(start, end + 1), {
+        status: 206,
+        headers: { "content-range": `bytes ${start}-${end}/${bytes.length}` },
+      });
+    });
+
+    await parseFile("https://example.com/v.mp4", {
+      timeout: 30_000,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+    });
+
+    expect(signals.length).toBeGreaterThan(1);
+    expect(new Set(signals).size).toBe(1);
+  });
+
+  test("a caller's own AbortSignal reaches every request", async () => {
+    const bytes = mp4WithTrailingMoov();
+    const controller = new AbortController();
+    let seen = 0;
+    const fetchMock = mock(async (_url: string, init?: RequestInit) => {
+      if (init?.signal) seen += 1;
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      const match = headers.Range?.match(/bytes=(\d+)-(\d+)/);
+      if (!match) return new Response(bytes, { status: 200 });
+      const start = Number(match[1]);
+      const end = Math.min(Number(match[2]), bytes.length - 1);
+      return new Response(bytes.slice(start, end + 1), {
+        status: 206,
+        headers: { "content-range": `bytes ${start}-${end}/${bytes.length}` },
+      });
+    });
+
+    await parseFile("https://example.com/v.mp4", {
+      signal: controller.signal,
+      fetch: fetchMock as unknown as typeof globalThis.fetch,
+    });
+
+    expect(seen).toBe(fetchMock.mock.calls.length);
+  });
+});
+
+describe("ReadableStream input", () => {
+  const streamOf = (bytes: Uint8Array) => {
+    let offset = 0;
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= bytes.length) {
+          controller.close();
+          return;
+        }
+        const chunk = bytes.subarray(offset, offset + 128 * 1024);
+        offset += chunk.length;
+        controller.enqueue(chunk);
+      },
+    });
+  };
+
+  test("a trailing moov within the drain cap is reachable", async () => {
+    // A stream cannot seek, so the tail is only reachable while it fits the cap.
+    const bytes = mp4WithTrailingMoov(PROBE_SIZE / 2);
+    const result = await parseFile(streamOf(bytes), {});
+    expect(result.width).toBe(1920);
+    expect(result.height).toBe(1080);
+  });
+
+  test("a trailing moov beyond the drain cap fails rather than hanging", async () => {
+    const bytes = mp4WithTrailingMoov(8 * PROBE_SIZE);
+    await expect(parseFile(streamOf(bytes), {})).rejects.toBeInstanceOf(
+      MediaParseError,
+    );
+  });
+
+  test("a leading moov parses regardless of stream length", async () => {
+    const bytes = new Uint8Array([
+      ...FTYP,
+      ...box("moov", videoTrak()),
+      ...box("mdat", new Array(6 * PROBE_SIZE).fill(0)),
+    ]);
+    const result = await parseFile(streamOf(bytes), {});
+    expect(result.width).toBe(1920);
+  });
+});
+
+describe("resource handling", () => {
+  /**
+   * Open descriptors for this process. Counting them is the only way this
+   * actually fails: the descriptor limit is high enough that merely looping
+   * parses never reaches EMFILE, so a leak would pass unnoticed.
+   */
+  function openDescriptors(): number {
+    for (const dir of ["/dev/fd", "/proc/self/fd"]) {
+      try {
+        return readdirSync(dir).length;
+      } catch {}
+    }
+    throw new Error("cannot enumerate file descriptors on this platform");
+  }
+
+  test("repeated local parses do not leak file handles", async () => {
+    const path = await tempFile(mp4WithTrailingMoov(PROBE_SIZE), "handles.mp4");
+    await parseFile(path, {}); // warm up, so lazily-opened internals are counted
+
+    const before = openDescriptors();
+    for (let i = 0; i < 150; i++) {
+      expect((await parseFile(path, {})).width).toBe(1920);
+    }
+
+    // One leaked handle per parse would put this at ~150.
+    expect(openDescriptors() - before).toBeLessThan(10);
   });
 });
 

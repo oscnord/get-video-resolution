@@ -30,11 +30,9 @@ describe("File parser", () => {
     expect(result.hdr).toBe(false);
   });
 
-  test("returns duration if available", async () => {
+  test("returns duration", async () => {
     const result = await parseFile(fixtures("test.mp4"), {});
-    if (result.duration !== undefined) {
-      expect(typeof result.duration).toBe("number");
-    }
+    expect(result.duration).toBeCloseTo(0.04, 2);
   });
 });
 
@@ -258,9 +256,7 @@ describe("AVI H.264 480p", () => {
 
   test("parses duration", async () => {
     const result = await parseFile(fixtures("avi_h264_480p.avi"), {});
-    if (result.duration !== undefined) {
-      expect(result.duration).toBeCloseTo(0.48, 1);
-    }
+    expect(result.duration).toBeCloseTo(0.48, 1);
   });
 
   test("parses aspect ratio", async () => {

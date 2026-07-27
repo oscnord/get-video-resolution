@@ -16,32 +16,27 @@ describe("sanity sweep across all file fixtures", () => {
   for (const name of fileFixtures) {
     test(`${name} produces a sane VideoInfo`, async () => {
       const info = await parseFile(join(fixturesDir, name), {});
-      assertSane(info, name);
+      assertSane(info);
     });
   }
 });
 
-function assertSane(info: VideoInfo, label: string): void {
+function assertSane(info: VideoInfo): void {
   expect(info.width).toBeGreaterThan(0);
   expect(info.height).toBeGreaterThan(0);
 
-  if (info.aspectRatio !== undefined) {
-    expect(info.aspectRatio).toMatch(/^\d+:\d+$/);
-  }
+  // Every supported container in test/fixtures yields these four. Asserting them
+  // unconditionally means a parser that stops emitting one fails here instead of
+  // quietly skipping the check.
+  expect(info.aspectRatio).toMatch(/^\d+:\d+$/);
 
-  if (info.framerate !== undefined) {
-    expect(info.framerate).toBeGreaterThan(0);
-    expect(info.framerate).toBeLessThan(1000);
-  }
+  expect(info.framerate).toBeGreaterThan(0);
+  expect(info.framerate).toBeLessThan(1000);
 
-  if (info.duration !== undefined) {
-    expect(info.duration).toBeGreaterThanOrEqual(0);
-    expect(info.duration).toBeLessThan(86400); // < 24h, generous
-  }
+  expect(info.duration).toBeGreaterThanOrEqual(0);
+  expect(info.duration as number).toBeLessThan(86400); // < 24h, generous
 
-  if (info.codec !== undefined) {
-    expect(info.codec.length).toBeGreaterThan(0);
-  }
+  expect(info.codec?.length).toBeGreaterThan(0);
 
   if (info.bitDepth !== undefined) {
     expect([8, 10, 12]).toContain(info.bitDepth);
@@ -58,7 +53,4 @@ function assertSane(info: VideoInfo, label: string): void {
       }
     }
   }
-
-  // Touch the label so jest reports point at the right fixture
-  expect(label.length).toBeGreaterThan(0);
 }
