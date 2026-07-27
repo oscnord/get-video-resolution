@@ -9,6 +9,8 @@ Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources (
 
 Reads only the header regions it needs rather than the whole file. For a remote URL that means a `Range` request for the first 1 MB, plus a small tail read when an MP4 stores its `moov` at the end; a local path reads those same regions off disk. Three cases still take everything: a `Blob` or `File` input is buffered in full, a server that ignores `Range` returns the whole body, and a format the 1 MB probe cannot identify falls back to a complete download.
 
+**[Try it in your browser →](https://www.oscarnord.com/get-video-resolution/)** Drop a video file or paste a stream URL and read the parsed `VideoInfo`, no install required.
+
 ## Install
 
 ```bash
