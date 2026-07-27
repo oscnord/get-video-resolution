@@ -4,22 +4,19 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>get-video-resolution · playground</title>
-<meta name="description" content="Read resolution, codec, framerate, HDR, rotation and track lists from MP4, WebM, MKV, AVI, HLS and DASH. Runs in your browser. No ffmpeg, no upload." />
+<meta name="description" content="Read resolution, codec, framerate, HDR, rotation and track lists from MP4, MOV, WebM, MKV, AVI, HLS and DASH. Runs in your browser. No ffmpeg, no upload." />
 <meta name="theme-color" content="#f7f8fb" />
 <meta property="og:title" content="get-video-resolution · playground" />
 <meta property="og:description" content="Drop a video file or paste a stream URL and read its metadata in the browser. Zero dependencies, no ffmpeg." />
 <meta property="og:type" content="website" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b62f0'/%3E%3Cpath d='M13 10.5l9 5.5-9 5.5z' fill='%23fff'/%3E%3C/svg%3E" />
+<link rel="modulepreload" href="https://esm.sh/@oscnord/get-video-resolution@2" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
 /* Hallmark · genre: modern-minimal · macrostructure: Component Playground · theme: Cobalt
- * enrichment: none (the live tool is the artifact) · nav: N1a bordered flush · footer: Ft2 inline
- * tone: technical · anchor hue: 256 (electric cobalt)
- * pre-emit critique: P5 H5 E5 S5 R5 V4
- * Deviations from the Cobalt spec, both to satisfy Hallmark universal disciplines:
- *   - no traffic-light window chrome on the code card (discipline 4 / gate 47)
- *   - no cmd-K palette: a command palette on a single-destination page is theatre
+ * nav: N1a · footer: Ft2 · enrichment: none · anchor hue: 256
  */
 
 :root {
@@ -57,7 +54,6 @@
   --text-xl:   1.375rem;
   --text-display: clamp(2.1rem, 5.2vw + 0.4rem, 3.9rem);
 
-  --space-3xs: 0.125rem;
   --space-2xs: 0.25rem;
   --space-xs:  0.5rem;
   --space-sm:  0.75rem;
@@ -71,12 +67,9 @@
   --radius-md: 10px;
 
   --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-fast: 130ms;
   --dur-mid:  260ms;
-  --dur-slow: 600ms;
 
-  --z-base: 1;
   --z-sticky: 200;
 
   --page-gutter: clamp(1.15rem, 5vw, 4.5rem);
@@ -98,7 +91,6 @@ body {
 h1, h2, h3 {
   font-family: var(--font-display);
   color: var(--color-ink);
-  font-style: normal;
   letter-spacing: -0.025em;
   line-height: 1.08;
   overflow-wrap: anywhere;
@@ -106,9 +98,8 @@ h1, h2, h3 {
   margin: 0;
 }
 p { margin: 0; }
-a { color: inherit; }
 
-:where(a, button, input, label.drop, summary):focus-visible {
+:where(a, button, input):focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
@@ -146,12 +137,14 @@ a { color: inherit; }
   display: flex; align-items: baseline; gap: var(--space-xs);
   font-family: var(--font-mono); font-size: var(--text-sm);
   font-weight: 500; color: var(--color-ink); text-decoration: none;
+  white-space: nowrap;
 }
 .chip-v {
   font-size: var(--text-xs); color: var(--color-accent);
   border: 1px solid var(--color-rule-2); border-radius: var(--radius-sm);
   padding: 1px 6px;
 }
+@media (max-width: 480px) { .chip-v { display: none; } }
 .nav__links { display: flex; gap: var(--space-lg); }
 .nav__links a {
   font-size: var(--text-sm); text-decoration: none;
@@ -256,7 +249,7 @@ a { color: inherit; }
 .btn--primary { background: var(--color-accent); color: var(--color-accent-ink); }
 .btn--primary:hover { background: var(--color-accent-dim); }
 .btn--primary:active { background: var(--color-accent-dim); transform: translateY(1px); }
-.btn--primary:disabled { background: var(--color-neutral); cursor: not-allowed; transform: none; }
+.btn--primary:disabled { background: var(--color-neutral); cursor: not-allowed; }
 .btn--ghost {
   background: var(--color-paper); color: var(--color-ink-2);
   border-color: var(--color-rule-2);
@@ -264,11 +257,6 @@ a { color: inherit; }
 .btn--ghost:hover { border-color: var(--color-accent); color: var(--color-ink); }
 .btn--ghost:active { background: var(--color-paper-2); }
 .btn--ghost:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn--ghost[aria-pressed="true"] {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  background: color-mix(in oklch, var(--color-accent) 7%, var(--color-paper));
-}
 
 .samples { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .samples .btn { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.02em; }
@@ -348,8 +336,10 @@ a { color: inherit; }
 .notes h2 { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-lg); }
 .notes__grid {
   display: grid; gap: var(--space-lg);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
+@media (max-width: 980px) { .notes__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .notes__grid { grid-template-columns: minmax(0, 1fr); } }
 .note { border-top: 1px solid var(--color-rule); padding-top: var(--space-sm); }
 .note h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--space-2xs); }
 .note p { font-size: var(--text-sm); color: var(--color-ink-2); }
@@ -365,22 +355,10 @@ a { color: inherit; }
 .foot a { color: var(--color-ink-2); text-underline-offset: 2px; }
 .foot a:hover { color: var(--color-accent); }
 
-/* ── Motion ───────────────────────────────────────────────── */
-.reveal { opacity: 0; transform: translateY(10px); }
-@media (prefers-reduced-motion: no-preference) {
-  .reveal {
-    transition: opacity var(--dur-slow) var(--ease-out),
-                transform var(--dur-slow) var(--ease-out);
-  }
-}
-.reveal.is-in { opacity: 1; transform: none; }
-
+/* Every transition on the page is timed by these two tokens, so zeroing them
+   here kills all motion without an !important specificity fight. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 1ms !important;
-    transition-duration: 1ms !important;
-  }
-  .reveal { opacity: 1; transform: none; }
+  :root { --dur-fast: 1ms; --dur-mid: 1ms; }
 }
 </style>
 </head>
@@ -404,7 +382,8 @@ a { color: inherit; }
     <p class="intro__lede">
       Drop a file, pick a sample stream, or paste a URL. You get resolution, codec, framerate,
       HDR, rotation, bit depth and every audio and subtitle track the container declares.
-      Only the header bytes are read, so a 40&nbsp;GB file costs the same as a 4&nbsp;MB one.
+      From a URL it range-requests about a megabyte and stops, so a 40&nbsp;GB remote file
+      costs roughly what a 4&nbsp;MB one does.
     </p>
     <p class="intro__meta label">
       <span>Zero dependencies</span><span>MP4</span><span>MOV</span><span>WebM</span><span>MKV</span><span>AVI</span><span>HLS</span><span>DASH</span><span>MIT</span>
@@ -415,13 +394,13 @@ a { color: inherit; }
     </p>
   </section>
 
-  <section class="bench shell reveal" aria-labelledby="bench-h">
+  <section class="bench shell" aria-labelledby="bench-h">
     <h2 id="bench-h" class="sr-only">Playground</h2>
 
     <div class="panel">
       <label class="drop" id="drop">
         <input class="sr-only" type="file" id="file"
-               accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi" />
+               accept="video/*,.mkv,.avi" />
         <span class="drop__hd">Drop a video file</span>
         <span class="drop__sub">or click to choose</span>
         <span class="drop__priv">Parsed in this tab. Nothing is uploaded.</span>
@@ -461,7 +440,7 @@ a { color: inherit; }
     </div>
   </section>
 
-  <section class="snippet shell reveal">
+  <section class="snippet shell">
     <div class="snippet__hd">
       <h2>The code that just ran</h2>
       <button class="btn btn--ghost" type="button" id="copycode">Copy</button>
@@ -469,15 +448,16 @@ a { color: inherit; }
     <pre id="code"></pre>
   </section>
 
-  <section class="notes shell reveal">
+  <section class="notes shell">
     <h2>Worth knowing</h2>
     <div class="notes__grid">
       <div class="note">
         <h3>Why some URLs fail here</h3>
         <p>
-          A browser can only fetch a URL whose host returns CORS headers, and remote files
-          also need <code>Range</code> allowed on the preflight. On a server there is no such
-          limit, so a URL that fails on this page still works from Node.
+          A browser can only fetch a URL whose host sends
+          <code>Access-Control-Allow-Origin</code>. Hosts also need to expose
+          <code>Content-Range</code>, or an MP4 storing its <code>moov</code> at the end
+          cannot be read. Node has neither restriction.
         </p>
       </div>
       <div class="note">
@@ -518,28 +498,31 @@ a { color: inherit; }
 </footer>
 
 <script type="module">
-import { getVideoResolution } from "https://esm.sh/@oscnord/get-video-resolution@2";
+// Kicked off now but awaited inside run(), so the controls below bind immediately.
+const lib = import("https://esm.sh/@oscnord/get-video-resolution@2");
+let api;
 
 const $ = (id) => document.getElementById(id);
 const out = $("out"), statusEl = $("status"), srcEl = $("src"), codeEl = $("code");
 const urlInput = $("url"), goBtn = $("go"), fileInput = $("file"), drop = $("drop");
 const allBox = $("all");
 
-const SAMPLES = [
-  { kind: "HLS",  label: "HLS",  url: "https://stream.mux.com/v69RSHhFelSm4701snP22dYz2jICy4E4FUyk02rW4gxRM.m3u8" },
-  { kind: "DASH", label: "DASH", url: "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd" },
-  { kind: "MP4",  label: "MP4",  url: "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps_1920x1080_8000k.mp4" },
-  { kind: "WebM", label: "WebM", url: "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.360p.webm" },
-];
+const SAMPLES = {
+  HLS:  "https://stream.mux.com/v69RSHhFelSm4701snP22dYz2jICy4E4FUyk02rW4gxRM.m3u8",
+  DASH: "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd",
+  MP4:  "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps_1920x1080_8000k.mp4",
+  WebM: "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.360p.webm",
+};
 
-$("samples").append(...SAMPLES.map((s) => {
+const sampleButtons = Object.entries(SAMPLES).map(([label, url]) => {
   const b = document.createElement("button");
   b.type = "button";
   b.className = "btn btn--ghost";
-  b.textContent = s.label;
-  b.addEventListener("click", () => run(s.url, s.url));
+  b.textContent = label;
+  b.addEventListener("click", () => run(url, url));
   return b;
-}));
+});
+$("samples").append(...sampleButtons);
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -547,7 +530,7 @@ function highlight(value) {
   const json = esc(JSON.stringify(value, null, 2));
   return json.replace(
     /("(?:\\.|[^"\\])*"\s*:)|("(?:\\.|[^"\\])*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
-    (m, key, str, lit, num) => {
+    (_match, key, str, lit, num) => {
       if (key) return `<span class="t-key">${key.slice(0, -1)}</span><span class="t-pun">:</span>`;
       if (str) return `<span class="t-str">${str}</span>`;
       if (lit) return `<span class="t-lit">${lit}</span>`;
@@ -565,34 +548,27 @@ function setBusy(busy) {
   goBtn.disabled = busy;
   urlInput.disabled = busy;
   goBtn.textContent = busy ? "Parsing…" : "Parse";
-  for (const b of document.querySelectorAll("#samples .btn")) b.disabled = busy;
-}
-
-function snippet(sourceExpr) {
-  const opts = allBox.checked ? ', { pick: "all" }' : "";
-  return [
-    'import { getVideoResolution } from "@oscnord/get-video-resolution";',
-    "",
-    `const info = await getVideoResolution(${sourceExpr}${opts});`,
-  ].join("\n");
+  for (const b of sampleButtons) b.disabled = busy;
 }
 
 let sourceExpr = '"https://example.com/master.m3u8"';
 function setSnippet(expr = sourceExpr) {
   sourceExpr = expr;
-  codeEl.textContent = snippet(expr);
+  const opts = allBox.checked ? ', { pick: "all" }' : "";
+  codeEl.textContent = [
+    'import { getVideoResolution } from "@oscnord/get-video-resolution";',
+    "",
+    `const info = await getVideoResolution(${expr}${opts});`,
+  ].join("\n");
 }
 
 /**
- * A cross-origin block surfaces two different ways: the manifest path wraps the
- * failed fetch in NetworkError, the file path lets the raw TypeError through.
+ * Only the cause is trustworthy. A blocked fetch arrives as NetworkError from the
+ * manifest path and MediaParseError from the file path, but both keep the original
+ * TypeError as `cause`. Matching on the message instead would also catch
+ * "Failed to fetch <url>: 404", which is a live host answering, not a block.
  */
-function isLikelyCors(error) {
-  const bareTypeError = error instanceof TypeError;
-  const wrapped = error?.cause instanceof TypeError;
-  const smells = /failed to fetch|load failed|networkerror when attempting/i.test(error?.message ?? "");
-  return bareTypeError || wrapped || (error?.name === "NetworkError" && smells);
-}
+const isBlockedByBrowser = (error) => error?.cause instanceof TypeError;
 
 function renderError(error, source) {
   setStatus("error", "Failed");
@@ -602,14 +578,14 @@ function renderError(error, source) {
     `<p class="err__msg">${esc(error?.message ?? String(error))}</p>`,
   ];
 
-  if (typeof source === "string" && isLikelyCors(error)) {
+  if (typeof source === "string" && isBlockedByBrowser(error)) {
     parts.push(
-      `<div class="err__why"><strong>This is almost certainly CORS, not a parsing bug.</strong>
-       The host has to send <code>Access-Control-Allow-Origin</code>, and remote files also need
-       <code>Range</code> allowed on the preflight. Browsers enforce this; servers do not.
-       The same call from Node or an edge function should succeed.</div>`,
+      `<div class="err__why"><strong>The browser blocked the request before the parser saw it.</strong>
+       Usually that means the host sent no <code>Access-Control-Allow-Origin</code>, though the
+       browser reports an offline or unreachable host identically. Nothing here points at a
+       parsing bug, and the same call from Node has no such restriction.</div>`,
     );
-  } else if (error?.name === "UnsupportedSourceError") {
+  } else if (api && error instanceof api.UnsupportedSourceError) {
     parts.push(
       `<div class="err__why">Pass a full <code>http(s)</code> URL here. Local paths need a
        filesystem, so in a browser you hand the library a <code>File</code> or <code>Blob</code>
@@ -621,17 +597,17 @@ function renderError(error, source) {
 }
 
 async function run(source, displayName) {
-  const isUrl = typeof source === "string";
   srcEl.textContent = displayName;
   setStatus("parsing", "Parsing");
   setBusy(true);
   out.innerHTML = `<p class="empty">// reading headers…</p>`;
-  setSnippet(isUrl ? JSON.stringify(source) : "file");
+  setSnippet(typeof source === "string" ? JSON.stringify(source) : "file");
 
   try {
     const opts = { timeout: 20000 };
     if (allBox.checked) opts.pick = "all";
-    const info = await getVideoResolution(source, opts);
+    api ??= await lib;
+    const info = await api.getVideoResolution(source, opts);
     setStatus("ok", "Parsed");
     out.innerHTML = `<pre>${highlight(info)}</pre>`;
   } catch (error) {
@@ -657,18 +633,16 @@ fileInput.addEventListener("change", () => {
 for (const type of ["dragenter", "dragover"]) {
   drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add("is-over"); });
 }
-for (const type of ["dragleave", "drop"]) {
-  drop.addEventListener(type, () => drop.classList.remove("is-over"));
-}
+drop.addEventListener("dragleave", () => drop.classList.remove("is-over"));
 drop.addEventListener("drop", (e) => {
   e.preventDefault();
+  drop.classList.remove("is-over");
   const file = e.dataTransfer?.files?.[0];
   if (file) run(file, file.name);
 });
 
 allBox.addEventListener("change", () => setSnippet());
 
-// Silent success: the label is the confirmation, no toast.
 for (const btn of document.querySelectorAll("[data-copy], #copycode")) {
   btn.addEventListener("click", async () => {
     const text = btn.dataset.copy ?? codeEl.textContent;
@@ -682,16 +656,6 @@ for (const btn of document.querySelectorAll("[data-copy], #copycode")) {
     }
   });
 }
-
-const io = new IntersectionObserver((entries) => {
-  for (const entry of entries) {
-    if (entry.isIntersecting) {
-      entry.target.classList.add("is-in");
-      io.unobserve(entry.target);
-    }
-  }
-}, { rootMargin: "0px 0px -8% 0px" });
-for (const el of document.querySelectorAll(".reveal")) io.observe(el);
 
 setSnippet();
 </script>
