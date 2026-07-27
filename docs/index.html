@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>get-video-resolution · playground</title>
+<meta name="description" content="Read resolution, codec, framerate, HDR, rotation and track lists from MP4, WebM, MKV, AVI, HLS and DASH. Runs in your browser. No ffmpeg, no upload." />
+<meta name="theme-color" content="#f7f8fb" />
+<meta property="og:title" content="get-video-resolution · playground" />
+<meta property="og:description" content="Drop a video file or paste a stream URL and read its metadata in the browser. Zero dependencies, no ffmpeg." />
+<meta property="og:type" content="website" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Hallmark · genre: modern-minimal · macrostructure: Component Playground · theme: Cobalt
+ * enrichment: none (the live tool is the artifact) · nav: N1a bordered flush · footer: Ft2 inline
+ * tone: technical · anchor hue: 256 (electric cobalt)
+ * pre-emit critique: P5 H5 E5 S5 R5 V4
+ * Deviations from the Cobalt spec, both to satisfy Hallmark universal disciplines:
+ *   - no traffic-light window chrome on the code card (discipline 4 / gate 47)
+ *   - no cmd-K palette: a command palette on a single-destination page is theatre
+ */
+
+:root {
+  --color-paper:      oklch(98.5% 0.004 250);
+  --color-paper-2:    oklch(96.4% 0.006 252);
+  --color-rule:       oklch(90%   0.008 252);
+  --color-rule-2:     oklch(83%   0.011 252);
+  --color-neutral:    oklch(55%   0.015 255);
+  --color-ink-2:      oklch(34%   0.018 257);
+  --color-ink:        oklch(24%   0.020 258);
+  --color-accent:     oklch(58%   0.20  256);
+  --color-accent-dim: oklch(50%   0.18  256);
+  --color-accent-ink: oklch(99%   0.005 250);
+  --color-graphite:   oklch(22%   0.016 260);
+  --color-graphite-2: oklch(28%   0.016 260);
+  --color-on-graphite:oklch(88%   0.010 255);
+  --color-focus:      oklch(58%   0.20  256);
+  --color-danger:     oklch(56%   0.17  25);
+  --color-ok:         oklch(65%   0.14  158);
+
+  --tok-key:   oklch(72% 0.15 250);
+  --tok-str:   oklch(84% 0.07 150);
+  --tok-num:   oklch(84% 0.11 75);
+  --tok-lit:   oklch(74% 0.13 320);
+  --tok-punct: oklch(58% 0.012 258);
+
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body:    "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --text-xs:   0.75rem;
+  --text-sm:   0.8125rem;
+  --text-md:   0.9375rem;
+  --text-lg:   1.0625rem;
+  --text-xl:   1.375rem;
+  --text-display: clamp(2.1rem, 5.2vw + 0.4rem, 3.9rem);
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs:  0.5rem;
+  --space-sm:  0.75rem;
+  --space-md:  1rem;
+  --space-lg:  1.5rem;
+  --space-xl:  2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 130ms;
+  --dur-mid:  260ms;
+  --dur-slow: 600ms;
+
+  --z-base: 1;
+  --z-sticky: 200;
+
+  --page-gutter: clamp(1.15rem, 5vw, 4.5rem);
+  --measure: 58ch;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { overflow-x: clip; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink-2);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 {
+  font-family: var(--font-display);
+  color: var(--color-ink);
+  font-style: normal;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  margin: 0;
+}
+p { margin: 0; }
+a { color: inherit; }
+
+:where(a, button, input, label.drop, summary):focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+.shell { max-width: 1180px; margin-inline: auto; padding-inline: var(--page-gutter); }
+
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-neutral);
+}
+
+/* ── Nav · N1a bordered flush ─────────────────────────────── */
+.nav {
+  position: sticky; top: 0; z-index: var(--z-sticky);
+  border-bottom: 1px solid var(--color-rule);
+  background: color-mix(in oklch, var(--color-paper) 85%, transparent);
+  backdrop-filter: blur(8px);
+}
+.nav__in {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-md); min-height: 56px;
+}
+.nav__mark {
+  display: flex; align-items: baseline; gap: var(--space-xs);
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  font-weight: 500; color: var(--color-ink); text-decoration: none;
+}
+.chip-v {
+  font-size: var(--text-xs); color: var(--color-accent);
+  border: 1px solid var(--color-rule-2); border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.nav__links { display: flex; gap: var(--space-lg); }
+.nav__links a {
+  font-size: var(--text-sm); text-decoration: none;
+  color: var(--color-ink-2); position: relative; padding-block: 2px;
+}
+.nav__links a::after {
+  content: ""; position: absolute; inset-inline: 0; bottom: 0; height: 1px;
+  background: var(--color-accent); transform: scaleX(0); transform-origin: left;
+  transition: transform var(--dur-mid) var(--ease-out);
+}
+.nav__links a:hover { color: var(--color-ink); }
+.nav__links a:hover::after { transform: scaleX(1); }
+
+/* ── Intro ────────────────────────────────────────────────── */
+.intro { padding-block: clamp(var(--space-xl), 7vw, var(--space-3xl)) var(--space-xl); }
+.intro h1 { font-size: var(--text-display); font-weight: 600; max-width: 16ch; }
+.intro__lede {
+  margin-top: var(--space-lg); max-width: var(--measure);
+  font-size: var(--text-lg); color: var(--color-ink-2);
+}
+.intro__meta {
+  margin-top: var(--space-lg); display: flex; flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-sm);
+}
+.intro__meta span::after { content: " ·"; color: var(--color-rule-2); }
+.intro__meta span:last-child::after { content: ""; }
+
+.install {
+  margin-top: var(--space-xl); display: flex; flex-wrap: wrap;
+  align-items: center; gap: var(--space-sm);
+}
+.install code {
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  color: var(--color-ink); background: var(--color-paper-2);
+  border: 1px solid var(--color-rule); border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+/* ── Bench · asymmetric input / output ────────────────────── */
+.bench {
+  display: grid; gap: var(--space-lg);
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  align-items: start;
+  padding-bottom: var(--space-2xl);
+}
+@media (max-width: 900px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+
+.panel {
+  border: 1px solid var(--color-rule); border-radius: var(--radius-md);
+  background: var(--color-paper-2); padding: var(--space-lg);
+  display: flex; flex-direction: column; gap: var(--space-md);
+}
+
+/* Drop zone */
+.drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-2xs); text-align: center;
+  min-height: 148px; padding: var(--space-lg);
+  border: 1px dashed var(--color-rule-2); border-radius: var(--radius-sm);
+  background: var(--color-paper); cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background-color var(--dur-fast) var(--ease-out);
+}
+.drop:hover { border-color: var(--color-accent); }
+.drop:focus-within { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.drop:active { background: var(--color-paper-2); }
+.drop.is-over {
+  border-color: var(--color-accent);
+  border-style: solid;
+  background: color-mix(in oklch, var(--color-accent) 6%, var(--color-paper));
+}
+.drop__hd { font-family: var(--font-display); font-weight: 500; color: var(--color-ink); font-size: var(--text-md); }
+.drop__sub { font-size: var(--text-sm); color: var(--color-neutral); }
+.drop__priv { font-size: var(--text-xs); color: var(--color-neutral); margin-top: var(--space-2xs); }
+
+.or { display: flex; align-items: center; gap: var(--space-sm); }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--color-rule); }
+
+.urlform { display: flex; gap: var(--space-xs); }
+.urlform input {
+  flex: 1; min-width: 0;
+  font-family: var(--font-mono); font-size: var(--text-sm);
+  color: var(--color-ink); background: var(--color-paper);
+  border: 1px solid var(--color-rule-2); border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.urlform input::placeholder { color: var(--color-neutral); }
+.urlform input:hover { border-color: var(--color-neutral); }
+.urlform input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; border-color: var(--color-accent); }
+.urlform input[aria-invalid="true"] { border-color: var(--color-danger); }
+.urlform input:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.btn {
+  font-family: var(--font-body); font-size: var(--text-sm); font-weight: 500;
+  border-radius: var(--radius-sm); border: 1px solid transparent;
+  padding: var(--space-xs) var(--space-md); cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+.btn--primary { background: var(--color-accent); color: var(--color-accent-ink); }
+.btn--primary:hover { background: var(--color-accent-dim); }
+.btn--primary:active { background: var(--color-accent-dim); transform: translateY(1px); }
+.btn--primary:disabled { background: var(--color-neutral); cursor: not-allowed; transform: none; }
+.btn--ghost {
+  background: var(--color-paper); color: var(--color-ink-2);
+  border-color: var(--color-rule-2);
+}
+.btn--ghost:hover { border-color: var(--color-accent); color: var(--color-ink); }
+.btn--ghost:active { background: var(--color-paper-2); }
+.btn--ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--ghost[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 7%, var(--color-paper));
+}
+
+.samples { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.samples .btn { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.02em; }
+
+.opt { display: flex; align-items: center; gap: var(--space-xs); font-size: var(--text-sm); cursor: pointer; }
+.opt input { accent-color: var(--color-accent); width: 15px; height: 15px; cursor: pointer; }
+.opt code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-ink); }
+
+.hint { font-size: var(--text-xs); color: var(--color-neutral); }
+
+/* ── Result · the one dark beat ───────────────────────────── */
+.result {
+  border: 1px solid var(--color-rule-2); border-radius: var(--radius-md);
+  background: var(--color-graphite); overflow: hidden;
+  box-shadow: 0 1px 2px oklch(24% 0.02 258 / 0.06);
+}
+.result__bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-sm); padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-graphite-2);
+}
+.result__src {
+  font-family: var(--font-mono); font-size: var(--text-xs);
+  color: var(--color-on-graphite); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left;
+}
+.status {
+  flex: none;
+  font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  border: 1px solid currentColor; border-radius: var(--radius-sm);
+  padding: 1px 7px; color: var(--tok-punct);
+}
+.status[data-state="parsing"] { color: var(--color-on-graphite); }
+.status[data-state="ok"]      { color: var(--color-ok); }
+.status[data-state="error"]   { color: var(--color-danger); }
+
+.result__body { margin: 0; padding: var(--space-md); min-height: 300px; max-height: 62vh; overflow: auto; }
+.result__body pre {
+  margin: 0; font-family: var(--font-mono); font-size: var(--text-sm);
+  line-height: 1.65; color: var(--color-on-graphite);
+  white-space: pre; tab-size: 2;
+}
+.t-key { color: var(--tok-key); }
+.t-str { color: var(--tok-str); }
+.t-num { color: var(--tok-num); }
+.t-lit { color: var(--tok-lit); }
+.t-pun { color: var(--tok-punct); }
+
+.empty { color: var(--tok-punct); font-family: var(--font-mono); font-size: var(--text-sm); }
+.err__name { color: var(--color-danger); font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 500; }
+.err__msg  { color: var(--color-on-graphite); font-size: var(--text-sm); margin-top: var(--space-xs); overflow-wrap: anywhere; }
+.err__why  {
+  margin-top: var(--space-md); padding-top: var(--space-md);
+  border-top: 1px solid var(--color-graphite-2);
+  color: var(--tok-punct); font-size: var(--text-sm);
+}
+.err__why strong { color: var(--color-on-graphite); font-weight: 500; }
+
+/* ── Snippet ──────────────────────────────────────────────── */
+.snippet { padding-bottom: var(--space-2xl); }
+.snippet__hd {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--space-md); flex-wrap: wrap; margin-bottom: var(--space-sm);
+}
+.snippet__hd h2 { font-size: var(--text-xl); font-weight: 600; }
+.snippet pre {
+  margin: 0; padding: var(--space-md);
+  border: 1px solid var(--color-rule); border-radius: var(--radius-md);
+  background: var(--color-paper-2);
+  font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.7;
+  color: var(--color-ink); overflow-x: auto;
+}
+
+/* ── Notes ────────────────────────────────────────────────── */
+.notes { padding-bottom: var(--space-2xl); }
+.notes h2 { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-lg); }
+.notes__grid {
+  display: grid; gap: var(--space-lg);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+.note { border-top: 1px solid var(--color-rule); padding-top: var(--space-sm); }
+.note h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--space-2xs); }
+.note p { font-size: var(--text-sm); color: var(--color-ink-2); }
+.note code { font-family: var(--font-mono); font-size: 0.95em; color: var(--color-ink); }
+.note a { color: var(--color-accent); text-underline-offset: 2px; }
+
+/* ── Footer · Ft2 inline single line ──────────────────────── */
+.foot { border-top: 1px solid var(--color-rule); padding-block: var(--space-lg); }
+.foot__in {
+  display: flex; flex-wrap: wrap; gap: var(--space-xs) var(--space-lg);
+  align-items: center; justify-content: space-between;
+}
+.foot a { color: var(--color-ink-2); text-underline-offset: 2px; }
+.foot a:hover { color: var(--color-accent); }
+
+/* ── Motion ───────────────────────────────────────────────── */
+.reveal { opacity: 0; transform: translateY(10px); }
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    transition: opacity var(--dur-slow) var(--ease-out),
+                transform var(--dur-slow) var(--ease-out);
+  }
+}
+.reveal.is-in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+  .reveal { opacity: 1; transform: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav__in shell">
+    <a class="nav__mark" href="https://github.com/oscnord/get-video-resolution">
+      get-video-resolution <span class="chip-v">v2</span>
+    </a>
+    <nav class="nav__links" aria-label="Project links">
+      <a href="https://www.npmjs.com/package/@oscnord/get-video-resolution">npm</a>
+      <a href="https://github.com/oscnord/get-video-resolution">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="intro shell">
+    <h1>Read video metadata without ffmpeg.</h1>
+    <p class="intro__lede">
+      Drop a file, pick a sample stream, or paste a URL. You get resolution, codec, framerate,
+      HDR, rotation, bit depth and every audio and subtitle track the container declares.
+      Only the header bytes are read, so a 40&nbsp;GB file costs the same as a 4&nbsp;MB one.
+    </p>
+    <p class="intro__meta label">
+      <span>Zero dependencies</span><span>MP4</span><span>MOV</span><span>WebM</span><span>MKV</span><span>AVI</span><span>HLS</span><span>DASH</span><span>MIT</span>
+    </p>
+    <p class="install">
+      <code>npm i @oscnord/get-video-resolution</code>
+      <button class="btn btn--ghost" type="button" data-copy="npm i @oscnord/get-video-resolution">Copy</button>
+    </p>
+  </section>
+
+  <section class="bench shell reveal" aria-labelledby="bench-h">
+    <h2 id="bench-h" class="sr-only">Playground</h2>
+
+    <div class="panel">
+      <label class="drop" id="drop">
+        <input class="sr-only" type="file" id="file"
+               accept="video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi" />
+        <span class="drop__hd">Drop a video file</span>
+        <span class="drop__sub">or click to choose</span>
+        <span class="drop__priv">Parsed in this tab. Nothing is uploaded.</span>
+      </label>
+
+      <p class="or label">or</p>
+
+      <form class="urlform" id="urlform">
+        <label class="sr-only" for="url">Video or manifest URL</label>
+        <input id="url" name="url" type="url" inputmode="url" spellcheck="false"
+               placeholder="https://…/master.m3u8" aria-describedby="url-hint" />
+        <button class="btn btn--primary" type="submit" id="go">Parse</button>
+      </form>
+      <p class="hint" id="url-hint">
+        Remote URLs need CORS headers from the host. Local files always work.
+      </p>
+
+      <div>
+        <p class="label" style="margin-bottom: var(--space-xs)">Samples</p>
+        <div class="samples" id="samples"></div>
+      </div>
+
+      <label class="opt">
+        <input type="checkbox" id="all" />
+        <span>All variants <code>{ pick: "all" }</code></span>
+      </label>
+    </div>
+
+    <div class="result">
+      <div class="result__bar">
+        <span class="result__src" id="src">&#8203;</span>
+        <span class="status" id="status" data-state="idle" role="status">Ready</span>
+      </div>
+      <div class="result__body" id="out" aria-live="polite" aria-atomic="true">
+        <p class="empty">// VideoInfo appears here</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="snippet shell reveal">
+    <div class="snippet__hd">
+      <h2>The code that just ran</h2>
+      <button class="btn btn--ghost" type="button" id="copycode">Copy</button>
+    </div>
+    <pre id="code"></pre>
+  </section>
+
+  <section class="notes shell reveal">
+    <h2>Worth knowing</h2>
+    <div class="notes__grid">
+      <div class="note">
+        <h3>Why some URLs fail here</h3>
+        <p>
+          A browser can only fetch a URL whose host returns CORS headers, and remote files
+          also need <code>Range</code> allowed on the preflight. On a server there is no such
+          limit, so a URL that fails on this page still works from Node.
+        </p>
+      </div>
+      <div class="note">
+        <h3>Local paths are server-only</h3>
+        <p>
+          <code>getVideoResolution("/path/to/video.mp4")</code> needs a filesystem.
+          In the browser you pass a <code>File</code>, <code>Blob</code> or
+          <code>ReadableStream</code> instead, which is what the drop zone does.
+        </p>
+      </div>
+      <div class="note">
+        <h3>Dimensions are coded, not displayed</h3>
+        <p>
+          A portrait phone clip reports <code>1920&times;1080</code> with
+          <code>rotation: 90</code>. Swap the axes yourself when rotation is 90 or 270.
+        </p>
+      </div>
+      <div class="note">
+        <h3>Read the rest</h3>
+        <p>
+          Every option, error class and documented limitation is in the
+          <a href="https://github.com/oscnord/get-video-resolution#readme">README</a>.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="foot__in shell label">
+    <span>get-video-resolution &middot; MIT</span>
+    <span>
+      <a href="https://www.npmjs.com/package/@oscnord/get-video-resolution">npm</a> &middot;
+      <a href="https://github.com/oscnord/get-video-resolution">GitHub</a> &middot;
+      <a href="https://github.com/oscnord/get-video-resolution/issues">Issues</a>
+    </span>
+  </div>
+</footer>
+
+<script type="module">
+import { getVideoResolution } from "https://esm.sh/@oscnord/get-video-resolution@2";
+
+const $ = (id) => document.getElementById(id);
+const out = $("out"), statusEl = $("status"), srcEl = $("src"), codeEl = $("code");
+const urlInput = $("url"), goBtn = $("go"), fileInput = $("file"), drop = $("drop");
+const allBox = $("all");
+
+const SAMPLES = [
+  { kind: "HLS",  label: "HLS",  url: "https://stream.mux.com/v69RSHhFelSm4701snP22dYz2jICy4E4FUyk02rW4gxRM.m3u8" },
+  { kind: "DASH", label: "DASH", url: "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd" },
+  { kind: "MP4",  label: "MP4",  url: "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps_1920x1080_8000k.mp4" },
+  { kind: "WebM", label: "WebM", url: "https://upload.wikimedia.org/wikipedia/commons/transcoded/c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.360p.webm" },
+];
+
+$("samples").append(...SAMPLES.map((s) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn btn--ghost";
+  b.textContent = s.label;
+  b.addEventListener("click", () => run(s.url, s.url));
+  return b;
+}));
+
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function highlight(value) {
+  const json = esc(JSON.stringify(value, null, 2));
+  return json.replace(
+    /("(?:\\.|[^"\\])*"\s*:)|("(?:\\.|[^"\\])*")|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (m, key, str, lit, num) => {
+      if (key) return `<span class="t-key">${key.slice(0, -1)}</span><span class="t-pun">:</span>`;
+      if (str) return `<span class="t-str">${str}</span>`;
+      if (lit) return `<span class="t-lit">${lit}</span>`;
+      return `<span class="t-num">${num}</span>`;
+    },
+  );
+}
+
+function setStatus(state, text) {
+  statusEl.dataset.state = state;
+  statusEl.textContent = text;
+}
+
+function setBusy(busy) {
+  goBtn.disabled = busy;
+  urlInput.disabled = busy;
+  goBtn.textContent = busy ? "Parsing…" : "Parse";
+  for (const b of document.querySelectorAll("#samples .btn")) b.disabled = busy;
+}
+
+function snippet(sourceExpr) {
+  const opts = allBox.checked ? ', { pick: "all" }' : "";
+  return [
+    'import { getVideoResolution } from "@oscnord/get-video-resolution";',
+    "",
+    `const info = await getVideoResolution(${sourceExpr}${opts});`,
+  ].join("\n");
+}
+
+let sourceExpr = '"https://example.com/master.m3u8"';
+function setSnippet(expr = sourceExpr) {
+  sourceExpr = expr;
+  codeEl.textContent = snippet(expr);
+}
+
+/**
+ * A cross-origin block surfaces two different ways: the manifest path wraps the
+ * failed fetch in NetworkError, the file path lets the raw TypeError through.
+ */
+function isLikelyCors(error) {
+  const bareTypeError = error instanceof TypeError;
+  const wrapped = error?.cause instanceof TypeError;
+  const smells = /failed to fetch|load failed|networkerror when attempting/i.test(error?.message ?? "");
+  return bareTypeError || wrapped || (error?.name === "NetworkError" && smells);
+}
+
+function renderError(error, source) {
+  setStatus("error", "Failed");
+  const name = error?.name || "Error";
+  const parts = [
+    `<p class="err__name">${esc(name)}</p>`,
+    `<p class="err__msg">${esc(error?.message ?? String(error))}</p>`,
+  ];
+
+  if (typeof source === "string" && isLikelyCors(error)) {
+    parts.push(
+      `<div class="err__why"><strong>This is almost certainly CORS, not a parsing bug.</strong>
+       The host has to send <code>Access-Control-Allow-Origin</code>, and remote files also need
+       <code>Range</code> allowed on the preflight. Browsers enforce this; servers do not.
+       The same call from Node or an edge function should succeed.</div>`,
+    );
+  } else if (error?.name === "UnsupportedSourceError") {
+    parts.push(
+      `<div class="err__why">Pass a full <code>http(s)</code> URL here. Local paths need a
+       filesystem, so in a browser you hand the library a <code>File</code> or <code>Blob</code>
+       instead.</div>`,
+    );
+  }
+
+  out.innerHTML = parts.join("");
+}
+
+async function run(source, displayName) {
+  const isUrl = typeof source === "string";
+  srcEl.textContent = displayName;
+  setStatus("parsing", "Parsing");
+  setBusy(true);
+  out.innerHTML = `<p class="empty">// reading headers…</p>`;
+  setSnippet(isUrl ? JSON.stringify(source) : "file");
+
+  try {
+    const opts = { timeout: 20000 };
+    if (allBox.checked) opts.pick = "all";
+    const info = await getVideoResolution(source, opts);
+    setStatus("ok", "Parsed");
+    out.innerHTML = `<pre>${highlight(info)}</pre>`;
+  } catch (error) {
+    renderError(error, source);
+    console.error(error);
+  } finally {
+    setBusy(false);
+  }
+}
+
+$("urlform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const value = urlInput.value.trim();
+  urlInput.setAttribute("aria-invalid", value ? "false" : "true");
+  if (value) run(value, value);
+});
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files?.[0];
+  if (file) run(file, file.name);
+});
+
+for (const type of ["dragenter", "dragover"]) {
+  drop.addEventListener(type, (e) => { e.preventDefault(); drop.classList.add("is-over"); });
+}
+for (const type of ["dragleave", "drop"]) {
+  drop.addEventListener(type, () => drop.classList.remove("is-over"));
+}
+drop.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer?.files?.[0];
+  if (file) run(file, file.name);
+});
+
+allBox.addEventListener("change", () => setSnippet());
+
+// Silent success: the label is the confirmation, no toast.
+for (const btn of document.querySelectorAll("[data-copy], #copycode")) {
+  btn.addEventListener("click", async () => {
+    const text = btn.dataset.copy ?? codeEl.textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      const previous = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(() => { btn.textContent = previous; }, 1400);
+    } catch {
+      btn.textContent = "Press ⌘C";
+    }
+  });
+}
+
+const io = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    if (entry.isIntersecting) {
+      entry.target.classList.add("is-in");
+      io.unobserve(entry.target);
+    }
+  }
+}, { rootMargin: "0px 0px -8% 0px" });
+for (const el of document.querySelectorAll(".reveal")) io.observe(el);
+
+setSnippet();
+</script>
+</body>
+</html>
