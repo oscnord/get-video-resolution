@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { readdirSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -457,13 +458,31 @@ describe("ReadableStream input", () => {
 });
 
 describe("resource handling", () => {
+  /**
+   * Open descriptors for this process. Counting them is the only way this
+   * actually fails: the descriptor limit is high enough that merely looping
+   * parses never reaches EMFILE, so a leak would pass unnoticed.
+   */
+  function openDescriptors(): number {
+    for (const dir of ["/dev/fd", "/proc/self/fd"]) {
+      try {
+        return readdirSync(dir).length;
+      } catch {}
+    }
+    throw new Error("cannot enumerate file descriptors on this platform");
+  }
+
   test("repeated local parses do not leak file handles", async () => {
     const path = await tempFile(mp4WithTrailingMoov(PROBE_SIZE), "handles.mp4");
-    // Comfortably past a default descriptor limit if close() were skipped.
-    for (let i = 0; i < 400; i++) {
-      const info = await parseFile(path, {});
-      expect(info.width).toBe(1920);
+    await parseFile(path, {}); // warm up, so lazily-opened internals are counted
+
+    const before = openDescriptors();
+    for (let i = 0; i < 150; i++) {
+      expect((await parseFile(path, {})).width).toBe(1920);
     }
+
+    // One leaked handle per parse would put this at ~150.
+    expect(openDescriptors() - before).toBeLessThan(10);
   });
 });
 
