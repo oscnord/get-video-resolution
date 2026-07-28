@@ -4,11 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>get-video-resolution · playground</title>
-<meta name="description" content="Read resolution, codec, framerate, HDR, rotation and track lists from MP4, MOV, WebM, MKV, AVI, HLS and DASH. Runs in your browser. No ffmpeg, no upload." />
+<meta name="description" content="Read resolution, codec, framerate, HDR, rotation and track lists from MP4, MOV, WebM, MKV, AVI, HLS and DASH. Runs in your browser, nothing is uploaded." />
 <meta name="theme-color" content="#f7f8fb" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#14161c" media="(prefers-color-scheme: dark)" />
 <meta property="og:title" content="get-video-resolution · playground" />
-<meta property="og:description" content="Drop a video file or paste a stream URL and read its metadata in the browser. Zero dependencies, no ffmpeg." />
+<meta property="og:description" content="Drop a video file or paste a stream URL and read its metadata in the browser. Zero dependencies, no install." />
 <meta property="og:type" content="website" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b62f0'/%3E%3Cpath d='M13 10.5l9 5.5-9 5.5z' fill='%23fff'/%3E%3C/svg%3E" />
 <link rel="modulepreload" href="https://esm.sh/@oscnord/get-video-resolution@2" />
@@ -229,7 +229,7 @@ code { overflow-wrap: anywhere; }
 
 /* ── Intro ────────────────────────────────────────────────── */
 .intro { padding-block: clamp(var(--space-xl), 7vw, var(--space-3xl)) var(--space-xl); }
-.intro h1 { font-size: var(--text-display); font-weight: 600; max-width: 16ch; }
+.intro h1 { font-size: var(--text-display); font-weight: 600; }
 .intro__lede {
   margin-top: var(--space-lg); max-width: var(--measure);
   font-size: var(--text-lg); color: var(--color-ink-2);
@@ -400,21 +400,6 @@ code { overflow-wrap: anywhere; }
   color: var(--color-ink); overflow-x: auto;
 }
 
-/* ── Notes ────────────────────────────────────────────────── */
-.notes { padding-bottom: var(--space-2xl); }
-.notes h2 { font-size: var(--text-xl); font-weight: 600; margin-bottom: var(--space-lg); }
-.notes__grid {
-  display: grid; gap: var(--space-lg);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-@media (max-width: 980px) { .notes__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .notes__grid { grid-template-columns: minmax(0, 1fr); } }
-.note { border-top: 1px solid var(--color-rule); padding-top: var(--space-sm); }
-.note h3 { font-size: var(--text-md); font-weight: 600; margin-bottom: var(--space-2xs); }
-.note p { font-size: var(--text-sm); color: var(--color-ink-2); }
-.note code { font-family: var(--font-mono); font-size: 0.95em; color: var(--color-ink); }
-.note a { color: var(--color-accent); text-underline-offset: 2px; }
-
 /* ── Footer · Ft2 inline single line ──────────────────────── */
 .foot { border-top: 1px solid var(--color-rule); padding-block: var(--space-lg); }
 .foot__in {
@@ -478,12 +463,12 @@ code { overflow-wrap: anywhere; }
 
 <main>
   <section class="intro shell">
-    <h1>Read video metadata without ffmpeg.</h1>
+    <h1>get-video-resolution</h1>
     <p class="intro__lede">
       Drop a file, pick a sample stream, or paste a URL. You get resolution, codec, framerate,
       HDR, rotation, bit depth and every audio and subtitle track the container declares.
-      It reads about a megabyte of headers and stops, whether the source is a URL or a file
-      you drop here, so a 40&nbsp;GB video costs roughly what a 4&nbsp;MB one does.
+      It reads about a megabyte of headers and stops, so a 40&nbsp;GB video costs roughly
+      what a 4&nbsp;MB one does.
     </p>
     <p class="intro__meta label">
       <span>Zero dependencies</span><span>MP4</span><span>MOV</span><span>WebM</span><span>MKV</span><span>AVI</span><span>HLS</span><span>DASH</span><span>MIT</span>
@@ -548,42 +533,6 @@ code { overflow-wrap: anywhere; }
     <pre id="code"></pre>
   </section>
 
-  <section class="notes shell">
-    <h2>Worth knowing</h2>
-    <div class="notes__grid">
-      <div class="note">
-        <h3>Why some URLs fail here</h3>
-        <p>
-          A browser can only fetch a URL whose host sends
-          <code>Access-Control-Allow-Origin</code>. Hosts also need to expose
-          <code>Content-Range</code>, or an MP4 storing its <code>moov</code> at the end
-          cannot be read. Node has neither restriction.
-        </p>
-      </div>
-      <div class="note">
-        <h3>Local paths are server-only</h3>
-        <p>
-          <code>getVideoResolution("/path/to/video.mp4")</code> needs a filesystem.
-          In the browser you pass a <code>File</code>, <code>Blob</code> or
-          <code>ReadableStream</code> instead, which is what the drop zone does.
-        </p>
-      </div>
-      <div class="note">
-        <h3>Dimensions are coded, not displayed</h3>
-        <p>
-          A portrait phone clip reports <code>1920&times;1080</code> with
-          <code>rotation: 90</code>. Swap the axes yourself when rotation is 90 or 270.
-        </p>
-      </div>
-      <div class="note">
-        <h3>Read the rest</h3>
-        <p>
-          Every option, error class and documented limitation is in the
-          <a href="https://github.com/oscnord/get-video-resolution#readme">README</a>.
-        </p>
-      </div>
-    </div>
-  </section>
 </main>
 
 <footer class="foot">
@@ -689,8 +638,8 @@ function renderError(error, source) {
     parts.push(
       `<div class="err__why"><strong>The browser blocked the request before the parser saw it.</strong>
        Usually that means the host sent no <code>Access-Control-Allow-Origin</code>, though the
-       browser reports an offline or unreachable host identically. Nothing here points at a
-       parsing bug, and the same call from Node has no such restriction.</div>`,
+       browser reports an offline or unreachable host identically. The same call from Node has
+       no such restriction.</div>`,
     );
   } else if (api && error instanceof api.UnsupportedSourceError) {
     parts.push(

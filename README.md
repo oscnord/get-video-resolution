@@ -5,7 +5,7 @@
 
 Get resolution, codec, audio tracks, subtitles, bit depth, rotation, and more from any video source. Supports local files (MP4, MOV, WebM, MKV, AVI), HLS streams, DASH manifests, and binary input (Buffer/Blob).
 
-Zero dependencies. No ffmpeg required. Browser-compatible for URL/Blob sources (see [Where it runs](#where-it-runs)).
+Zero dependencies. No native binaries. Browser-compatible for URL/Blob sources (see [Where it runs](#where-it-runs)).
 
 Reads only the header regions it needs, never the whole file: about 1 MB from the start, plus a small tail read when an MP4 stores its `moov` at the end. That holds identically for a URL, a local path, a `Buffer`, a `Blob`/`File` and a `ReadableStream`, so a 1.5 GB source costs the same as a 4 MB one.
 
